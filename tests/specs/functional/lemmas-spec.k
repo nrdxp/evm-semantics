@@ -26,6 +26,8 @@ module LEMMAS-SPEC
            => doneLemma(                                                         W_ad597194   modInt 1461501637330902918203684832716283019655932542976 ) ... </k>
       requires #rangeUInt(256, W_ad597194)
 
+    claim <k> runLemma(0 <=Int maxUInt160 &Int #lookup(ACCT_STORAGE, 0) andBool maxUInt160 &Int #lookup(ACCT_STORAGE, 0) <Int pow160) => doneLemma(true) ... </k>
+
  // bool2Word
  // ---------
 
