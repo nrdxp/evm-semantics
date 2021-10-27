@@ -113,12 +113,14 @@ module INFINITE-GAS-COMMON
     rule 0 <=Int Csload(_, _)       => true  [simplification]
     rule Csload(_, _) <Int #gas(_)  => true  [simplification]
     rule #gas(_)  <Int Csload(_, _) => false [simplification]
-    rule #gas(_) >=Int Csload(_, _) => true  [simplification]
+    rule Csload(_, _) <=Int #gas(_) => true  [simplification]
 
     rule 0 <=Int Cmem(_, _)       => true  [simplification]
     rule Cmem(_, _) <Int #gas(_)  => true  [simplification]
     rule #gas(_) <Int Cmem(_, _)  => false [simplification]
     rule Cmem(_, _) <=Int #gas(_) => true  [simplification]
+
+    rule Cmem(SCHED, MU) <=Int Cmem(SCHED, #memoryUsageUpdate(MU, _, WIDTH)) => true requires #rangeUInt(256, MU) andBool 0 <Int WIDTH [simplification]
 
     rule 0 <=Int Csstore(_, _, _, _)              => true [simplification]
     rule         Csstore(_, _, _, _) <Int #gas(_) => true [simplification]
@@ -141,10 +143,5 @@ module INFINITE-GAS-COMMON
 
     rule 0 <=Int G up/Int _                => true requires 0 <=Int G        [simplification]
     rule G         up/Int _  <Int #gas(G') => true requires G  <Int #gas(G') [simplification]
-
-    rule 0 <=Int Csload(_, _)       => true  [simplification]
-    rule Csload(_, _) <Int #gas(_)  => true  [simplification]
-    rule #gas(_) <Int Csload(_, _)  => false [simplification]
-    rule Csload(_, _) <=Int #gas(_) => true  [simplification]
 
 endmodule

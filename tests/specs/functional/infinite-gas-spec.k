@@ -135,4 +135,8 @@ module INFINITE-GAS-SPEC
     claim <k> runLemma(Cgascap(ISTANBUL, #gas(_), #gas(_), 700) <Int 3) => doneLemma(false) ... </k>
     claim <k> runLemma(0 <=Int Cgascap(ISTANBUL, #gas(VGAS +Int -5413), #gas(VGAS +Int -5413), 700)) => doneLemma(true) ... </k>
 
+    claim <k> runLemma(GAS_CELL <Int 3) => doneLemma(false) ... </k> <memoryUsed> MU </memoryUsed>
+      requires #rangeUInt(256, MU)
+       andBool 0 <=Int GAS_CELL -Int Cmem(ISTANBUL, #memoryUsageUpdate(MU, 64, 32)) +Int Cmem(ISTANBUL, MU) -Int 30
+
 endmodule

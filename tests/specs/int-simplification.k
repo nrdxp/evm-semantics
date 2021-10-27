@@ -177,6 +177,7 @@ module INT-SIMPLIFICATION-COMMON
     rule 0 <=Int A *Int B => true requires 0 <=Int A andBool 0 <=Int B [simplification]
 
     rule A -Int B +Int C <=Int D => false requires D <Int A -Int B andBool 0 <=Int C [simplification]
+    rule A <=Int B -Int C +Int D => false requires B <Int A andBool D <=Int C        [simplification]
 
     rule minInt(A, B) <Int C  => true requires A  <Int C  orBool B  <Int C [simplification]
     rule A  <Int minInt(B, C) => true requires A  <Int B andBool A  <Int C [simplification]
