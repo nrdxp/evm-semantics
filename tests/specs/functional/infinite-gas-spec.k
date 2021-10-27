@@ -36,6 +36,10 @@ module INFINITE-GAS-SPEC
     claim <k> runLemma(#memoryUsageUpdate(#memoryUsageUpdate(MEMORYUSED_CELL, 0, 32), 32, 32)) => doneLemma(#memoryUsageUpdate(MEMORYUSED_CELL, 32, 32)) ... </k>
       requires #rangeUInt(256, MEMORYUSED_CELL)
 
+    claim <k> runLemma(  #memoryUsageUpdate(#memoryUsageUpdate(#memoryUsageUpdate(#memoryUsageUpdate(MU, 64, 32), #asWord(#range(LM, 64, 32)), 32), chop(#asWord(#range(LM, 64, 32)) +Int 4), 32), 64, 32) )
+           => doneLemma(                    #memoryUsageUpdate(#memoryUsageUpdate(#memoryUsageUpdate(MU, 64, 32), #asWord(#range(LM, 64, 32)), 32), chop(#asWord(#range(LM, 64, 32)) +Int 4), 32)          ) ... </k>
+      requires #rangeUInt(256, MU)
+
  // Infinite Gas simplifications
  // ----------------------------
 

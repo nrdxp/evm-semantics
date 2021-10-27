@@ -51,6 +51,11 @@ module INFINITE-GAS-HASKELL [kore]
 
     rule #gas(_) <=Int _C => false [concrete(_C), simplification]
     rule _C <=Int #gas(_) => true  [concrete(_C), simplification]
+
+    rule #memoryUsageUpdate(#memoryUsageUpdate(MU, S1, W1), S2, W2) => #memoryUsageUpdate(#memoryUsageUpdate(MU, S2, W2), S1, W1)
+      requires 0 <Int W1 andBool 0 <Int W2
+      [simplification, concrete(S2), symbolic(S1)]
+
 endmodule
 
 module INFINITE-GAS-COMMON
