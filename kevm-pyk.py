@@ -6,12 +6,15 @@ from   graphviz import Digraph
 import hashlib
 import os
 import sys
+import time
 
 from   pyk          import *
 from   pyk.__main__ import main, pykArgs, pykCommandParsers
 from   pyk.__init__ import _teeProcessStdout
 
 sys.setrecursionlimit(15000000)
+
+lastTime = time.time()
 
 ### UPSTREAMABLE
 
@@ -146,7 +149,11 @@ def abstractCell(constrainedTerm, cellName):
 ### Utilities
 
 def _notif(msg):
-    sys.stderr.write('== ' + sys.argv[0].split('/')[-1] + ' ' + str(datetime.now()) + ': ' + msg + '\n')
+    global lastTime
+    curTime  = time.time()
+    diffTime = curTime - lastTime
+    lastTime = curTime
+    sys.stderr.write('== ' + sys.argv[0].split('/')[-1] + ' ' + str(datetime.now()) + ' [+' + '{0:8.2f}'.format(diffTime) + ']: ' + msg + '\n')
     sys.stderr.flush()
 
 def _warning(msg):
