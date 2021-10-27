@@ -100,6 +100,7 @@ module INT-SIMPLIFICATION-COMMON
     rule   (A +Int  B  +Int C)  -Int (A  +Int D) =>  B +Int (C  -Int D) [simplification]
     rule   (C +Int (A  -Int D)) +Int (B  -Int A) =>  C +Int (B  -Int D) [simplification]
     rule (((A -Int  B) -Int C)  -Int  D) +Int B  => (A -Int  C) -Int D  [simplification]
+    rule (((A -Int  B) +Int C)  -Int  D) +Int B  => (A +Int  C) -Int D  [simplification]
 
   // ###########################################################################    
   // mul
@@ -178,11 +179,11 @@ module INT-SIMPLIFICATION-COMMON
 
     rule A -Int B +Int C <=Int D => false requires D <Int A -Int B andBool 0 <=Int C [simplification]
     rule A <=Int B -Int C +Int D => false requires B <Int A andBool D <=Int C        [simplification]
+    rule A <=Int B +Int C -Int D => false requires B <Int A andBool C <=Int D        [simplification]
 
     rule minInt(A, B) <Int C  => true requires A  <Int C  orBool B  <Int C [simplification]
     rule A  <Int minInt(B, C) => true requires A  <Int B andBool A  <Int C [simplification]
     rule A <=Int minInt(B, C) => true requires A <=Int B andBool A <=Int C [simplification]
-
 
     rule A <=Int maxInt(B, C) => true requires A <=Int B orBool A <=Int C [simplification]
 

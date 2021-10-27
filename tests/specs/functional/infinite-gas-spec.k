@@ -139,4 +139,12 @@ module INFINITE-GAS-SPEC
       requires #rangeUInt(256, MU)
        andBool 0 <=Int GAS_CELL -Int Cmem(ISTANBUL, #memoryUsageUpdate(MU, 64, 32)) +Int Cmem(ISTANBUL, MU) -Int 30
 
+    claim <k> runLemma(GAS_CELL <Int 1) => doneLemma(false) ... </k> <memoryUsed> MU </memoryUsed>
+      requires #rangeUInt(256, MU)
+       andBool 927 <=Int GAS_CELL -Int Cmem(ISTANBUL, #memoryUsageUpdate(MU, 0, 32))
+                                  +Int Cmem(ISTANBUL, MU)
+                                  -Int Cmem(ISTANBUL, #memoryUsageUpdate(MU, 32, 32))
+                                  +Int Cmem(ISTANBUL, #memoryUsageUpdate(MU, 0, 32))
+
+
 endmodule
