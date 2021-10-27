@@ -146,6 +146,16 @@ def abstractCell(constrainedTerm, cellName):
         constraints.append(KApply('#Equals', [cellVar, cell]))
     return buildAssoc(KConstant('#Top'), '#And', [state] + constraints)
 
+def applyConstraintSubstitutions(constrainedTerm):
+    (state, constraint) = splitConfigAndConstraints(constrainedTerm)
+    constraints         = flattenLabel('#And', constraint)
+    substPattern        = mlEqualsTrue(KApply('_==K_', [KVariable('#VAR'), KVariable('#VAL')]))
+    for c in constraints:
+        substMatch = match(substPattern, c)
+        if substMatch is not None and isKVariable(substMatch['#VAR']):
+            state = substitute(state, { substMatch['#VAR']['name'] : substMatch['#VAL'] })
+    return buildAssoc(KConstant('#Top'), '#And', [state] + constraints)
+
 ### Utilities
 
 def _notif(msg):
@@ -267,6 +277,25 @@ def kevmUndoMacros(constraint):
         return k
     constraint = buildAssoc(KConstant('#Top'), '#And', [ _replacer(c) for c in constraints ])
     return constraint
+
+def kevmMakeExecutable(initConstrainedTerm, finalConstrainedTerm, symbolTable):
+    (initState,  initConstraint)  = splitConfigAndConstraints(initConstrainedTerm)
+    (finalState, finalConstraint) = splitConfigAndConstraints(finalConstrainedTerm)
+    initConstraints               = flattenLabel('#And', initConstraint)
+    finalConstraints              = flattenLabel('#And', finalConstraint)
+
+    gasInit  = getCell(initState,  'GAS_CELL')
+    gasFinal = getCell(finalState, 'GAS_CELL')
+    if isKApply(gasInit) and gasInit['label'] == 'infGas':
+        initState = setCell(initState, 'GAS_CELL', gasInit['args'][0])
+    if isKApply(gasFinal) and gasFinal['label'] == 'infGas':
+        finalState = setCell(finalState, 'GAS_CELL', gasFinal['args'][0])
+        finalConstraints.append(mlEqualsTrue(leInt(intToken(0), gasFinal['args'][0])))
+
+    initConstrainedTerm  = buildAssoc(KConstant('#Top'), '#And', [initState]  + initConstraints)
+    finalConstrainedTerm = buildAssoc(KConstant('#Top'), '#And', [finalState] + finalConstraints)
+    finalConstrainedTerm = applyConstraintSubstitutions(finalConstrainedTerm)
+    return (initConstrainedTerm, finalConstrainedTerm)
 
 def kevmSanitizeConfig(initConstrainedTerm):
 
@@ -585,6 +614,7 @@ def kevmSummarize( directory
             if i < len(nextStatesAndConstraints) - 1:
                 cfg['frontier'].insert(0, initStateId)
 
+            (initState, finalState) = kevmMakeExecutable(initState, finalState, symbolTable)
             basicBlockId = contractName.upper() + '-BASIC-BLOCK-' + str(initStateId) + '-TO-' + str(finalStateId)
             newClaim     = buildRule(basicBlockId, initState, finalState, claim = True)
             newClaims.append(newClaim)
