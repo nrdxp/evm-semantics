@@ -543,8 +543,6 @@ def kevmSummarize( directory
                  , mainModuleName
                  , contractName
                  , symbolTable
-                 , intermediateClaimsFile
-                 , intermediateClaimsModule
                  , debug = False
                  , verify = False
                  , maxBlocks = None
@@ -552,6 +550,9 @@ def kevmSummarize( directory
                  , startOffset = 0
                  , graphvizFile = None
                  ):
+
+    intermediateClaimsFile   = directory + '/' + contractName.lower() + '-basic-blocks-spec.k'
+    intermediateClaimsModule = contractName.upper() + '-BASIC-BLOCKS-SPEC'
 
     frontier        = [(startOffset + i, ct) for (i, ct) in enumerate(flattenLabel('#Or', initState))]
     seenStates      = []
@@ -660,8 +661,6 @@ def kevmPykMain(args, kompiled_dir):
         directory                = '/'.join(mainFileName.split('/')[0:-1])
         mainModuleName           = args['main-module-name']
         contractName             = args['contract-name']
-        intermediateClaimsFile   = directory + '/' + contractName.lower() + '-basic-blocks-spec.k'
-        intermediateClaimsModule = contractName.upper() + '-BASIC-BLOCKS-SPEC'
         summaryRulesModule       = contractName.upper() + '-BASIC-BLOCKS'
         maxBlocks                = None if 'max_blocks' not in args else args['max_blocks']
         resumeFromState          = None if 'max_blocks' not in args else args['resume_from_state']
@@ -680,8 +679,6 @@ def kevmPykMain(args, kompiled_dir):
                                          , mainModuleName
                                          , contractName
                                          , symbolTable
-                                         , intermediateClaimsFile
-                                         , intermediateClaimsModule
                                          , debug = args['debug']
                                          , verify = args['verify']
                                          , maxBlocks = maxBlocks
