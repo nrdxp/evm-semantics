@@ -553,6 +553,7 @@ def kevmSummarize( directory
 
     intermediateClaimsFile   = directory + '/' + contractName.lower() + '-basic-blocks-spec.k'
     intermediateClaimsModule = contractName.upper() + '-BASIC-BLOCKS-SPEC'
+    cfgFile                  = directory + '/' + contractName.lower() + '-cfg.json'
 
     frontier        = [(startOffset + i, ct) for (i, ct) in enumerate(flattenLabel('#Or', initState))]
     seenStates      = []
@@ -632,6 +633,10 @@ def kevmSummarize( directory
                 intermediate.write(writeCFG(cfg, graphvizFile = graphvizFile) + '\n')
                 intermediate.flush()
                 _notif('Wrote updated claims file: ' + intermediateClaimsFile)
+
+            with open(cfgFile, 'w') as f:
+                f.write(json.dumps(cfg))
+                _notif('Wrote updated cfg file: ' + cfgFile)
 
     return (newRules, cfg)
 
