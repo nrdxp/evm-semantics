@@ -125,7 +125,8 @@ module INFINITE-GAS-COMMON
     rule #gas(_) <Int Cmem(_, _)  => false [simplification]
     rule Cmem(_, _) <=Int #gas(_) => true  [simplification]
 
-    rule Cmem(SCHED, MU) <=Int Cmem(SCHED, #memoryUsageUpdate(MU, _, WIDTH)) => true requires #rangeUInt(256, MU) andBool 0 <Int WIDTH [simplification]
+    rule Cmem(SCHED, MU) <=Int Cmem(SCHED, MU') => true requires 0 <=Int MU andBool MU <=Int MU' [simplification]
+    rule MU <=Int #memoryUsageUpdate(MU', _, _) => true requires 0 <=Int MU andBool MU <=Int MU' [simplification]
 
     rule 0 <=Int Csstore(_, _, _, _)              => true [simplification]
     rule         Csstore(_, _, _, _) <Int #gas(_) => true [simplification]

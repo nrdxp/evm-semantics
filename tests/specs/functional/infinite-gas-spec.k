@@ -156,4 +156,13 @@ module INFINITE-GAS-SPEC
                                    -Int Cmem (ISTANBUL, #memoryUsageUpdate(#memoryUsageUpdate(#memoryUsageUpdate(MU, 64                                      , 32)
                                                                                                                    ,      #asWord(#range(LM, 64, 32))        , 32)
                                                                                                                    , chop(#asWord(#range(LM, 64, 32)) +Int 4), 32))
+
+    claim <k> runLemma(MU <=Int #memoryUsageUpdate(#memoryUsageUpdate(MU, maxInt(64, LMWORD), 32), LMWORD, chop(LMWORD +Int 32) -Int LMWORD)) => doneLemma(true) ... </k>
+      requires #rangeUInt(256, MU)
+
+    claim <k> runLemma(GAS_CELL <Int 1) => doneLemma(false) ... </k> <memoryUsed> MU </memoryUsed>
+      requires #rangeUInt(256, MU)
+       andBool 1097 <=Int GAS_CELL +Int Cmem(ISTANBUL, MU)
+                                   -Int Cmem(ISTANBUL, #memoryUsageUpdate(#memoryUsageUpdate(MU, maxInt(64, #asWord(#range(LM, 64, 32))), 32), #asWord(#range(LM, 64, 32)), chop(chop(#asWord(#range(LM, 64, 32)) +Int 32) -Int #asWord(#range(LM, 64, 32)))))
+
 endmodule
