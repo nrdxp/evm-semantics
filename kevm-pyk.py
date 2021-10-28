@@ -485,7 +485,8 @@ def writeCFG(cfg, graphvizFile = None):
                , '//     transitions:'
                ]
     for initStateId in cfg['graph']:
-        for (finalStateId, label, depth) in cfg['graph'][initStateId]:
+        for finState in cfg['graph'][initStateId]:
+            (finalStateId, label, depth) = (finState['successor'], finState['constraint'], finState['depth'])
             cfgLines.append('//         ' + '{0:>3}'.format(initStateId) + ' -> ' + '{0:>3}'.format(finalStateId) + ' [' + '{0:>5}'.format(depth) + ' steps]: ' + label)
     if graphvizFile is not None:
         graph = Digraph()
@@ -497,7 +498,8 @@ def writeCFG(cfg, graphvizFile = None):
             label = ' '.join(labels)
             graph.node(str(s), label = label)
         for s in cfg['graph'].keys():
-            for (f, id, d) in cfg['graph'][s]:
+            for finState in cfg['graph'][s]:
+                (f, id, d) = (finState['successor'], finState['constraint'], finState['depth'])
                 label = id
                 if d != 1:
                     label = label + ': ' + str(d) + ' steps'
@@ -597,7 +599,7 @@ def kevmSummarize( directory
                 kevmWriteStateToFile(directory, contractName, str(finalStateId), finalState, symbolTable)
                 writtenStates.append(finalStateId)
 
-            cfg['graph'][initStateId].append((finalStateId, printConstraint(newConstraint, symbolTable), depth))
+            cfg['graph'][initStateId].append({ 'successor': finalStateId, 'constraint': printConstraint(newConstraint, symbolTable), 'depth': depth })
             if isTerminal(finalState):
                 cfg['terminal'].append(finalStateId)
             elif len(nextStatesAndConstraints) == 1 and depth != maxDepth:
@@ -609,7 +611,7 @@ def kevmSummarize( directory
                         subsumed = True
                         if finalStateId not in cfg['graph']:
                             cfg['graph'][finalStateId] = []
-                        cfg['graph'][finalStateId].append((j, printConstraint(newConstraint, symbolTable), 0))
+                        cfg['graph'][finalStateId].append({ 'successor': j, 'constraint': printConstraint(newConstraint, symbolTable), 'depth': 0 })
                 if not subsumed:
                     frontier.append((finalStateId, finalState))
             cfg['frontier'] = [i for (i, _) in frontier]
