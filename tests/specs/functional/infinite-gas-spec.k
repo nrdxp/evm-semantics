@@ -33,11 +33,11 @@ module INFINITE-GAS-SPEC
 
     claim <k> runLemma(X +Int (0 -Int ABI_wad)) => doneLemma(X -Int ABI_wad) ... </k>
 
-    claim <k> runLemma(#memoryUsageUpdate(#memoryUsageUpdate(MEMORYUSED_CELL, 0, 32), 32, 32)) => doneLemma(#memoryUsageUpdate(MEMORYUSED_CELL, 32, 32)) ... </k>
-      requires #rangeUInt(256, MEMORYUSED_CELL)
+    claim <k> runLemma(#memoryUsageUpdate(#memoryUsageUpdate(MU, 32, 32), 0,  64)) => doneLemma(#memoryUsageUpdate(MU, 32, 32)) ... </k> requires #rangeUInt(256, MU)
+    claim <k> runLemma(#memoryUsageUpdate(#memoryUsageUpdate(MU, 0,  32), 32, 32)) => doneLemma(#memoryUsageUpdate(MU, 32, 32)) ... </k> requires #rangeUInt(256, MU)
 
     claim <k> runLemma(  #memoryUsageUpdate(#memoryUsageUpdate(#memoryUsageUpdate(#memoryUsageUpdate(MU, 64, 32), #asWord(#range(LM, 64, 32)), 32), chop(#asWord(#range(LM, 64, 32)) +Int 4), 32), 64, 32) )
-           => doneLemma(                    #memoryUsageUpdate(#memoryUsageUpdate(#memoryUsageUpdate(MU, 64, 32), #asWord(#range(LM, 64, 32)), 32), chop(#asWord(#range(LM, 64, 32)) +Int 4), 32)          ) ... </k>
+           => doneLemma( #memoryUsageUpdate(MU, maxInt(maxInt(64, #asWord(#range(LM, 64, 32))), chop(#asWord(#range(LM, 64, 32)) +Int 4)), 32) ) ... </k>
       requires #rangeUInt(256, MU)
 
  // Infinite Gas simplifications
@@ -150,5 +150,10 @@ module INFINITE-GAS-SPEC
                                   -Int Cmem(ISTANBUL, #memoryUsageUpdate(MU, 32, 32))
                                   +Int Cmem(ISTANBUL, #memoryUsageUpdate(MU, 0, 32))
 
-
+    claim <k> runLemma(GAS_CELL <Int 1) => doneLemma(false) ... </k> <memoryUsed> MU </memoryUsed>
+      requires #rangeUInt(256, MU)
+       andBool 1880 <=Int GAS_CELL +Int Cmem (ISTANBUL, MU )
+                                   -Int Cmem (ISTANBUL, #memoryUsageUpdate(#memoryUsageUpdate(#memoryUsageUpdate(MU, 64                                      , 32)
+                                                                                                                   ,      #asWord(#range(LM, 64, 32))        , 32)
+                                                                                                                   , chop(#asWord(#range(LM, 64, 32)) +Int 4), 32))
 endmodule
