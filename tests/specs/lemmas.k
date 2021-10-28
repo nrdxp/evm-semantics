@@ -20,6 +20,8 @@ module LEMMAS
     rule 0 <=Int chop(_V)             => true        [simplification]
     rule         chop(_V) <Int pow256 => true        [simplification]
 
+    rule chop(chop(I1 +Int I2) -Int I3) => chop(I1 +Int I2 -Int I3) [simplification]
+
   // ########################
   // Set Reasoning
   // ########################

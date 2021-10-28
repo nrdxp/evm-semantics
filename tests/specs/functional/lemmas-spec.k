@@ -142,6 +142,9 @@ module LEMMAS-SPEC
 
     claim <k> runLemma(chop(#asWord(#range(LOCALMEM_CELL, 64, 32)))) => doneLemma(#asWord(#range(LOCALMEM_CELL, 64, 32))) ... </k>
 
+    claim <k> runLemma(chop(chop(I1 +Int 32) -Int I3)) => doneLemma(chop(I1 +Int 32 -Int I3)) ... </k>
+      requires #rangeUInt(256, I2)
+
  // #padToWidth simplification
  // --------------------------
 
