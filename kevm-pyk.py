@@ -249,7 +249,7 @@ def kevmProve(mainFile, specFile, specModule, kevmArgs = [], teeOutput = False, 
     backend = 'haskell'
     backendDirectory = '/'.join(mainFile.split('/')[0:-1])
     kevmCommand = [ 'kevm' , 'prove' , specFile
-                  , '--backend' , backend , '--backend-dir' , backendDirectory , '-I' , backendDirectory
+                  , '--backend' , backend , '--directory' , backendDirectory , '-I' , backendDirectory
                   , '--provex' , '--spec-module' , specModule
                   , '--output' , 'json' , '--boundary-cells' , 'k,pc'
                   ]
