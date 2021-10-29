@@ -154,15 +154,17 @@ def applyConstraintSubstitutions(constrainedTerm):
     return buildAssoc(KConstant('#Top'), '#And', [state] + constraints)
 
 class KSemantics:
-    def __init__(self, directory):
-        self.directory       = directory
-        self.legacyDirectory = '/'.join(self.directory.split('/')[0:-1])
-        with open(self.directory + '/backend.txt', 'r') as ba:
+    def __init__(self, kompiledDirectory):
+        self.kompiledDirectory = kompiledDirectory
+        self.directory         = '/'.join(self.kompiledDirectory.split('/')[0:-1])
+        self.definition        = readKastTerm(self.kompiledDirectory + '/compiled.json')
+        self.symbolTable       = buildSymbolTable(self.definition, opinionated = True)
+        self.prover            = [ 'kprove' ]
+        self.proverArgs        = [ ]
+        with open(self.kompiledDirectory + '/backend.txt', 'r') as ba:
             self.backend     = ba.read()
-        self.definition      = readKastTerm(directory + '/compiled.json')
-        self.symbolTable     = buildSymbolTable(self.definition, opinionated = True)
-        self.prover          = [ 'kprove' ]
-        self.proverArgs      = [ ]
+        with open(self.kompiledDirectory + '/mainModule.txt', 'r') as mm:
+            self.mainModule  = mm.read()
 
     def prettyPrint(self, term):
         return prettyPrintKast(term, self.symbolTable)
@@ -174,8 +176,8 @@ class KSemantics:
         command = self.prover
         command = command + [ specFile ]
         command = command + [ '--backend'     , self.backend
-                            , '--directory'   , self.legacyDirectory
-                            , '-I'            , self.legacyDirectory
+                            , '--directory'   , self.directory
+                            , '-I'            , self.directory
                             , '--spec-module' , specModuleName
                             , '--output'      , 'json'
                             ]
