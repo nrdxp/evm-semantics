@@ -415,6 +415,24 @@ def kevmGetBasicBlocks(directory, mainFileName, mainModuleName, initConstrainedT
 
 def abstract(constrainedTerm):
 
+    cellSubst = { 'GAS_CELL'        : infGas(KVariable('_GAS_CELL'))
+                , 'MEMORYUSED_CELL' : KVariable('MEMORYUSED_CELL')
+                }
+
+    newVars = [ '_GAS_CELL' , 'MEMEORYUSED_CELL' ]
+
+    newConstraints = [ mlEqualsTrue(rangeUInt256(KVariable('MEMORYUSED_CELL'))) ]
+
+    newConstrainedTerm = removeConstraintsFor(newVars, constrainedTerm)
+    newConstrainedTerm = applyCellSubst(newConstrainedTerm, cellSubst)
+    newConstrainedTerm = removeUselessConstraints(newConstrainedTerm)
+    newConstrainedTerm = buildAssoc(KConstant('Top'), '#And', [newConstrainedTerm] + newConstraints)
+    newConstrainedTerm = markUselessVars(newConstrainedTerm)
+
+    return newConstrainedTerm
+
+def loopAbstract(constrainedTerm):
+
     wordStack          = getCell(constrainedTerm, 'WORDSTACK_CELL')
     wordStackFreshVars = []
     if not isKVariable(wordStack):
@@ -434,15 +452,12 @@ def abstract(constrainedTerm):
         wordStack = buildCons(KConstant('.WordStack_EVM-TYPES_WordStack'), '_:__EVM-TYPES_WordStack_Int_WordStack', newWordStackItems)
 
     cellSubst = { 'WORDSTACK_CELL'  : wordStack
-                , 'GAS_CELL'        : infGas(KVariable('_GAS_CELL'))
                 , 'LOCALMEM_CELL'   : KVariable('_LOCALMEM_CELL')
-                , 'MEMORYUSED_CELL' : KVariable('MEMORYUSED_CELL')
                 }
 
-    newVars = [ '_GAS_CELL' , '_LOCALMEM_CELL' , 'MEMEORYUSED_CELL' ] + wordStackFreshVars
+    newVars = [ '_LOCALMEM_CELL' ] + wordStackFreshVars
 
     newConstraints = [ mlEqualsTrue(rangeUInt256(KVariable(v))) for v in wordStackFreshVars ]
-    newConstraints.append(mlEqualsTrue(rangeUInt256(KVariable('MEMORYUSED_CELL'))))
 
     newConstrainedTerm = removeConstraintsFor(newVars, constrainedTerm)
     newConstrainedTerm = applyCellSubst(newConstrainedTerm, cellSubst)
