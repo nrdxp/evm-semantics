@@ -178,18 +178,22 @@ def _genFileTimestamp(comment = '//'):
 
 ### KEVM Stuff
 
-boolToken             = lambda b:      KToken(str(b).lower(), 'Bool')
-intToken              = lambda i:      KToken(str(i), 'Int')
-stringToken           = lambda s:      KToken('"' + s + '"', 'String')
-ltInt                 = lambda i1, i2: KApply('_<Int_', [i1, i2])
-leInt                 = lambda i1, i2: KApply('_<=Int_', [i1, i2])
-rangeUInt256          = lambda i:      KApply('#rangeUInt(_,_)_EVM-TYPES_Bool_Int_Int', [intToken(256), i])
-rangeAddress          = lambda i:      KApply('#rangeAddress(_)_EVM-TYPES_Bool_Int', [i])
-sizeByteArray         = lambda ba:     KApply('#sizeByteArray(_)_EVM-TYPES_Int_ByteArray', [ba])
-infGas                = lambda g:      KApply('infGas', [g])
-computeValidJumpDests = lambda p:      KApply('#computeValidJumpDests(_)_EVM_Set_ByteArray', [p])
-binRuntime            = lambda c:      KApply('#binRuntime', [c])
-mlEqualsTrue          = lambda b:      KApply('#Equals', [boolToken(True), b])
+boolToken             = lambda b:       KToken(str(b).lower(), 'Bool')
+intToken              = lambda i:       KToken(str(i), 'Int')
+stringToken           = lambda s:       KToken('"' + s + '"', 'String')
+ltInt                 = lambda i1, i2:  KApply('_<Int_', [i1, i2])
+leInt                 = lambda i1, i2:  KApply('_<=Int_', [i1, i2])
+rangeUInt256          = lambda i:       KApply('#rangeUInt(_,_)_EVM-TYPES_Bool_Int_Int', [intToken(256), i])
+rangeAddress          = lambda i:       KApply('#rangeAddress(_)_EVM-TYPES_Bool_Int', [i])
+sizeByteArray         = lambda ba:      KApply('#sizeByteArray(_)_EVM-TYPES_Int_ByteArray', [ba])
+infGas                = lambda g:       KApply('infGas', [g])
+computeValidJumpDests = lambda p:       KApply('#computeValidJumpDests(_)_EVM_Set_ByteArray', [p])
+binRuntime            = lambda c:       KApply('#binRuntime', [c])
+mlEqualsTrue          = lambda b:       KApply('#Equals', [boolToken(True), b])
+abiCallData           = lambda n, args: KApply('#abiCallData', [stringToken(n)] + args)
+abiAddress            = lambda a:       KApply('#address(_)_EVM-ABI_TypedArg_Int', [KVariable(a)])
+abiUInt256            = lambda i:       KApply('#uint256(_)_EVM-ABI_TypedArg_Int', [KVariable(i)])
+bytesAppend           = lambda b1, b2:  KApply('_++__EVM-TYPES_ByteArray_ByteArray_ByteArray', [b1, b2])
 
 def kevmAccountCell(id, balance, code, storage, origStorage, nonce):
     return KApply('<account>', [ KApply('<acctID>'      , [id])
@@ -207,6 +211,7 @@ def kevmSymbolTable(json_definition, opinionated = True):
     symbolTable['_AccountCellMap_']                                          = paren(lambda a1, a2: a1 + '\n' + a2)
     symbolTable['AccountCellMapItem']                                        = lambda k, v: v
     symbolTable['_[_:=_]_EVM-TYPES_Memory_Memory_Int_ByteArray']             = lambda m, k, v: m + ' [ '  + k + ' := (' + v + '):ByteArray ]'
+    sybbolTable['_[_.._]_EVM-TYPES_ByteArray_ByteArray_Int_Int']             = lambda m, s, w: '( ' + m + ' [ ' + s + ' .. ' + w + ']):ByteArray'
     symbolTable['_<Word__EVM-TYPES_Int_Int_Int']                             = paren(lambda a1, a2: '(' + a1 + ') <Word ('  + a2 + ')' )
     symbolTable['_>Word__EVM-TYPES_Int_Int_Int']                             = paren(lambda a1, a2: '(' + a1 + ') >Word ('  + a2 + ')' )
     symbolTable['_<=Word__EVM-TYPES_Int_Int_Int']                            = paren(lambda a1, a2: '(' + a1 + ') <=Word (' + a2 + ')' )
