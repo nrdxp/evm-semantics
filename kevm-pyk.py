@@ -155,15 +155,46 @@ def applyConstraintSubstitutions(constrainedTerm):
 
 class KSemantics:
     def __init__(self, directory):
-        self.directory   = directory
-        self.definition  = readKastTerm(directory + '/compiled.json')
-        self.symbolTable = buildSymbolTable(self.definition, opinionated = True)
+        self.directory       = directory
+        self.legacyDirectory = '/'.join(self.directory.split('/')[0:-1])
+        with open(self.directory + '/backend.txt', 'r') as ba:
+            self.backend = ba.read()
+        self.definition      = readKastTerm(directory + '/compiled.json')
+        self.symbolTable     = buildSymbolTable(self.definition, opinionated = True)
+        self.prover          = [ 'kprove' ]
+        self.proverArgs      = [ ]
 
     def prettyPrint(self, term):
         return prettyPrintKast(term, self.symbolTable)
 
     def prettyPrintConstraint(self, constraint):
         return self.prettyPrint(simplifyBool(unsafeMlPredToBool(constraint)))
+
+    def prove(self, specFile, specModuleName, args = [], teeOutput = False, dieOnFail = False):
+        command = self.prover
+        command = command + [ specFile ]
+        command = command + [ '--backend'     , self.backend
+                            , '--directory'   , self.legacyDirectory
+                            , '-I'            , self.legacyDirectory
+                            , '--spec-module' , specModuleName
+                            , '--output'      , 'json'
+                            ]
+        command = command + self.proverArgs
+        command = command + args
+        _notif(' '.join(command))
+        (rc, stdout, stderr) = _teeProcessStdout(command, tee = teeOutput)
+        try:
+            finalState = json.loads(stdout)['term']
+            if finalState == KConstant('#Top'):
+                return finalState
+            if dieOnFail:
+                _fatal('Unable to prove claim: ' + specFile)
+            return finalState
+        except:
+            sys.stderr.write(stdout + '\n')
+            sys.stderr.write(stderr + '\n')
+            _fatal('Exiting...', exitCode = rc)
+
 
 ### Utilities
 
@@ -244,29 +275,6 @@ def kevmSymbolTable(symbolTable):
     symbolTable['EVMC_BAD_JUMP_DESTINATION_NETWORK_ExceptionalStatusCode']   = lambda: 'EVMC_BAD_JUMP_DESTINATION'
     symbolTable['EVMC_ACCOUNT_ALREADY_EXISTS_NETWORK_ExceptionalStatusCode'] = lambda: 'EVMC_ACCOUNT_ALREADY_EXISTS'
     return symbolTable
-
-def kevmProve(mainFile, specFile, specModule, kevmArgs = [], teeOutput = False, dieOnFail = False):
-    backend = 'haskell'
-    backendDirectory = '/'.join(mainFile.split('/')[0:-1])
-    kevmCommand = [ 'kevm' , 'prove' , specFile
-                  , '--backend' , backend , '--directory' , backendDirectory , '-I' , backendDirectory
-                  , '--provex' , '--spec-module' , specModule
-                  , '--output' , 'json' , '--boundary-cells' , 'k,pc'
-                  ]
-    kevmCommand += kevmArgs
-    _notif(' '.join(kevmCommand))
-    (rc, stdout, stderr) = _teeProcessStdout(kevmCommand, tee = teeOutput)
-    try:
-        finalState = json.loads(stdout)['term']
-        if finalState == KConstant('#Top'):
-            return finalState
-        if dieOnFail:
-            _fatal('Unable to prove claim: ' + specFile)
-        return finalState
-    except:
-        sys.stderr.write(stdout + '\n')
-        sys.stderr.write(stderr + '\n')
-        _fatal('Exiting...', exitCode = rc)
 
 def kevmUndoMacros(constraint):
     constraints  = flattenLabel('#And', constraint)
@@ -353,14 +361,14 @@ def kevmProveClaim(kevm, mainFileName, mainModuleName, claim, claimId, kevmArgs 
                    , '--haskell-backend-arg' , '--log-entries'
                    , '--haskell-backend-arg' , 'DebugTransition'
                    ]
-    tmpClaim  = kevm.directory + '/' + claimId.lower() + '-spec.k'
-    tmpModule = claimId.upper() + '-SPEC'
+    tmpClaim      = kevm.directory + '/' + claimId.lower() + '-spec.k'
+    tmpModuleName = claimId.upper() + '-SPEC'
     with open(tmpClaim, 'w') as tc:
-        claimDefinition = makeDefinition([claim], tmpModule, [mainFileName], [mainModuleName])
+        claimDefinition = makeDefinition([claim], tmpModuleName, [mainFileName], [mainModuleName])
         tc.write(_genFileTimestamp() + '\n')
         tc.write(kevm.prettyPrint(claimDefinition) + '\n\n')
         tc.flush()
-        finalState = kevmProve(mainFileName, tmpClaim, tmpModule, kevmArgs = newKevmArgs, teeOutput = teeOutput, dieOnFail = dieOnFail)
+        finalState = kevm.prove(tmpClaim, tmpModuleName, args = newKevmArgs, teeOutput = teeOutput, dieOnFail = dieOnFail)
         if finalState == KConstant('#Top'):
             if len(getAppliedAxiomList(logAxiomsFile)) == 0:
                 _fatal('Proof took zero steps, likely the LHS is invalid: ' + tmpClaim)
@@ -702,6 +710,8 @@ def kevmPykMain(args, kompiled_dir):
 
         kevm             = KSemantics(kompiled_dir)
         kevm.symbolTable = kevmSymbolTable(kevm.symbolTable)
+        kevm.prover      = [ 'kevm' , 'prove' ]
+        kevm.proverArgs  = [ '--provex' , '--boundary-cells' , 'k,pc' ]
 
         mainFileName       = args['main-module-file']
         directory          = '/'.join(mainFileName.split('/')[0:-1])
