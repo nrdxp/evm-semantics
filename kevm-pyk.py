@@ -211,7 +211,7 @@ def kevmSymbolTable(json_definition, opinionated = True):
     symbolTable['_AccountCellMap_']                                          = paren(lambda a1, a2: a1 + '\n' + a2)
     symbolTable['AccountCellMapItem']                                        = lambda k, v: v
     symbolTable['_[_:=_]_EVM-TYPES_Memory_Memory_Int_ByteArray']             = lambda m, k, v: m + ' [ '  + k + ' := (' + v + '):ByteArray ]'
-    sybbolTable['_[_.._]_EVM-TYPES_ByteArray_ByteArray_Int_Int']             = lambda m, s, w: '( ' + m + ' [ ' + s + ' .. ' + w + ']):ByteArray'
+    symbolTable['_[_.._]_EVM-TYPES_ByteArray_ByteArray_Int_Int']             = lambda m, s, w: '( ' + m + ' [ ' + s + ' .. ' + w + ']):ByteArray'
     symbolTable['_<Word__EVM-TYPES_Int_Int_Int']                             = paren(lambda a1, a2: '(' + a1 + ') <Word ('  + a2 + ')' )
     symbolTable['_>Word__EVM-TYPES_Int_Int_Int']                             = paren(lambda a1, a2: '(' + a1 + ') >Word ('  + a2 + ')' )
     symbolTable['_<=Word__EVM-TYPES_Int_Int_Int']                            = paren(lambda a1, a2: '(' + a1 + ') <=Word (' + a2 + ')' )
@@ -479,7 +479,7 @@ def buildEmptyClaim(initConstrainedTerm, claimId):
     finalConstrainedTerm = buildTerminal(initConstrainedTerm)
     return buildRule(claimId, initConstrainedTerm, finalConstrainedTerm, claim = True, keepVars = collectFreeVars(initConstrainedTerm))
 
-def writeCFG(cfg, graphvizFile = None):
+def writeCFG(cfg, symbolTable, graphvizFile = None):
     states = set(list(cfg['graph'].keys()) + cfg['init'] + cfg['terminal'] + cfg['frontier'] + cfg['stuck'])
     cfgLines = [ '// CFG:'
                , '//     states:      ' + ', '.join([str(s) for s in states])
@@ -491,7 +491,7 @@ def writeCFG(cfg, graphvizFile = None):
                ]
     for initStateId in cfg['graph']:
         for finState in cfg['graph'][initStateId]:
-            (finalStateId, label, depth) = (finState['successor'], finState['constraint'], finState['depth'])
+            (finalStateId, label, depth) = (finState['successor'], printConstraint(finState['constraint'], symbolTable), finState['depth'])
             cfgLines.append('//         ' + '{0:>3}'.format(initStateId) + ' -> ' + '{0:>3}'.format(finalStateId) + ' [' + '{0:>5}'.format(depth) + ' steps]: ' + label)
     if graphvizFile is not None:
         graph = Digraph()
@@ -504,7 +504,7 @@ def writeCFG(cfg, graphvizFile = None):
             graph.node(str(s), label = label)
         for s in cfg['graph'].keys():
             for finState in cfg['graph'][s]:
-                (f, id, d) = (finState['successor'], finState['constraint'], finState['depth'])
+                (f, id, d) = (finState['successor'], printConstraint(finState['constraint'], symbolTable), finState['depth'])
                 label = id
                 if d != 1:
                     label = label + ': ' + str(d) + ' steps'
@@ -534,6 +534,9 @@ def buildInitState(contractName, constrainedTerm):
                   , mlEqualsTrue(ltInt(sizeByteArray(KVariable('CALLDATA_CELL')), intToken(2 ** 256)))
                   ]
     return buildAssoc(KConstant('#Top'), '#And', [applyCellSubst(constrainedTerm, cellSubst)] + constraints)
+
+def kevmTransitionLabel(successor, initConstrainedTerm, finalConstrainedTerm, newConstraint, depth):
+    return { 'successor': successor, 'constraint': newConstraint, 'depth': depth }
 
 def kevmWriteStateToFile(directory, contractName, stateId, state, symbolTable):
     stateFileName = directory + '/' + contractName.lower() + '-state-' + stateId
@@ -604,7 +607,7 @@ def kevmSummarize( directory
                 kevmWriteStateToFile(directory, contractName, str(finalStateId), finalState, symbolTable)
                 writtenStates.append(finalStateId)
 
-            cfg['graph'][initStateId].append({ 'successor': finalStateId, 'constraint': printConstraint(newConstraint, symbolTable), 'depth': depth })
+            cfg['graph'][initStateId].append(kevmTransitionLabel(finalStateId, initState, finalState, newConstraint, depth))
             if isTerminal(finalState):
                 cfg['terminal'].append(finalStateId)
             elif len(nextStatesAndConstraints) == 1 and depth != maxDepth:
@@ -616,7 +619,7 @@ def kevmSummarize( directory
                         subsumed = True
                         if finalStateId not in cfg['graph']:
                             cfg['graph'][finalStateId] = []
-                        cfg['graph'][finalStateId].append({ 'successor': j, 'constraint': printConstraint(newConstraint, symbolTable), 'depth': 0 })
+                        cfg['graph'][finalStateId].append(kevmTransitionLabel(j, finalState, seen, newConstraint, 0))
                 if not subsumed:
                     frontier.append((finalStateId, finalState))
             cfg['frontier'] = [i for (i, _) in frontier]
@@ -637,7 +640,7 @@ def kevmSummarize( directory
                 claimDefinition = makeDefinition(newClaims, intermediateClaimsModule, [mainFileName], [mainModuleName])
                 intermediate.write(_genFileTimestamp() + '\n')
                 intermediate.write(prettyPrintKast(claimDefinition, symbolTable) + '\n\n')
-                intermediate.write(writeCFG(cfg, graphvizFile = graphvizFile) + '\n')
+                intermediate.write(writeCFG(cfg, symbolTable, graphvizFile = graphvizFile) + '\n')
                 intermediate.flush()
                 _notif('Wrote updated claims file: ' + intermediateClaimsFile)
 
@@ -701,7 +704,7 @@ def kevmPykMain(args, kompiled_dir):
 
         args['output'].write(_genFileTimestamp() + '\n')
         args['output'].write(prettyPrintKast(summaryDefinition, symbolTable) + '\n\n')
-        args['output'].write(writeCFG(cfg, graphvizFile = graphvizFile) + '\n')
+        args['output'].write(writeCFG(cfg, symbolTable, graphvizFile = graphvizFile) + '\n')
         args['output'].flush()
 
 if __name__ == '__main__':
