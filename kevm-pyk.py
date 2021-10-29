@@ -158,7 +158,7 @@ class KSemantics:
         self.directory       = directory
         self.legacyDirectory = '/'.join(self.directory.split('/')[0:-1])
         with open(self.directory + '/backend.txt', 'r') as ba:
-            self.backend = ba.read()
+            self.backend     = ba.read()
         self.definition      = readKastTerm(directory + '/compiled.json')
         self.symbolTable     = buildSymbolTable(self.definition, opinionated = True)
         self.prover          = [ 'kprove' ]
@@ -194,7 +194,6 @@ class KSemantics:
             sys.stderr.write(stdout + '\n')
             sys.stderr.write(stderr + '\n')
             _fatal('Exiting...', exitCode = rc)
-
 
 ### Utilities
 
@@ -373,8 +372,7 @@ def kevmProveClaim(kevm, mainFileName, mainModuleName, claim, claimId, kevmArgs 
             if len(getAppliedAxiomList(logAxiomsFile)) == 0:
                 _fatal('Proof took zero steps, likely the LHS is invalid: ' + tmpClaim)
             return KConstant('#Top')
-        finalStates = [ kevmSanitizeConfig(structurallyFrameKCell(s)) for s in flattenLabel('#Or', finalState) ]
-        return buildAssoc(KConstant('#Bottom'), '#Or', finalStates)
+        return finalState
 
 def kevmGetBasicBlocks(kevm, mainFileName, mainModuleName, initConstrainedTerm, claimId, debug = False, maxDepth = 1000, isTerminal = None):
     claim       = buildEmptyClaim(initConstrainedTerm, claimId)
@@ -390,7 +388,7 @@ def kevmGetBasicBlocks(kevm, mainFileName, mainModuleName, initConstrainedTerm, 
                                 )
     if nextState == KConstant('#Top'):
         _fatal('Proved claim for generating basic block, use unproveable claims for summaries.')
-    nextStates = flattenLabel('#Or', nextState)
+    nextStates = [ kevmSanitizeConfig(structurallyFrameKCell(s)) for s in flattenLabel('#Or', nextState) ]
 
     branching = False
     depth     = 0
@@ -404,8 +402,8 @@ def kevmGetBasicBlocks(kevm, mainFileName, mainModuleName, initConstrainedTerm, 
 
     if isTerminal is not None and isTerminal(nextStates[0]):
         depth -= 1
-        nextState = kevmProveClaim(kevm, mainFileName, mainModuleName, claim, claimId, kevmArgs = ['--depth', str(depth)], teeOutput = debug)
-        nextStates = flattenLabel('#Or', nextState)
+        nextState  = kevmProveClaim(kevm, mainFileName, mainModuleName, claim, claimId, kevmArgs = ['--depth', str(depth)], teeOutput = debug)
+        nextStates = [ kevmSanitizeConfig(structurallyFrameKCell(s)) for s in flattenLabel('#Or', nextState) ]
 
     _notif('Found ' + str(len(nextStates)) + ' basic blocks for ' + claimId + ' at depth ' + str(depth) + '.')
 
