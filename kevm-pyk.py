@@ -60,9 +60,6 @@ def applyCellSubst(constrainedTerm, cellSubst):
         subst[k] = cellSubst[k]
     return KApply('#And', [substitute(config, subst), constraint])
 
-def printConstraint(constraint, symbolTable):
-    return prettyPrintKast(simplifyBool(unsafeMlPredToBool(constraint)), symbolTable)
-
 def removeUselessConstraints(constrainedTerm):
     (state, constraint) = splitConfigAndConstraints(constrainedTerm)
     stateVars           = collectFreeVars(state)
@@ -156,6 +153,18 @@ def applyConstraintSubstitutions(constrainedTerm):
             state = substitute(state, { substMatch['#VAR']['name'] : substMatch['#VAL'] })
     return buildAssoc(KConstant('#Top'), '#And', [state] + constraints)
 
+class KSemantics:
+    def __init__(self, directory):
+        self.directory   = directory
+        self.definition  = readKastTerm(directory + '/compiled.json')
+        self.symbolTable = buildSymbolTable(self.definition, opinionated = True)
+
+    def prettyPrint(self, term):
+        return prettyPrintKast(term, self.symbolTable)
+
+    def prettyPrintConstraint(self, constraint):
+        return self.prettyPrint(simplifyBool(unsafeMlPredToBool(constraint)))
+
 ### Utilities
 
 def _notif(msg):
@@ -205,8 +214,7 @@ def kevmAccountCell(id, balance, code, storage, origStorage, nonce):
                                ]
                  )
 
-def kevmSymbolTable(json_definition, opinionated = True):
-    symbolTable                                                              = buildSymbolTable(json_definition, opinionated = opinionated)
+def kevmSymbolTable(symbolTable):
     symbolTable['_Set_']                                                     = paren(symbolTable['_Set_'])
     symbolTable['_AccountCellMap_']                                          = paren(lambda a1, a2: a1 + '\n' + a2)
     symbolTable['AccountCellMapItem']                                        = lambda k, v: v
@@ -283,7 +291,7 @@ def kevmUndoMacros(constraint):
     constraint = buildAssoc(KConstant('#Top'), '#And', [ _replacer(c) for c in constraints ])
     return constraint
 
-def kevmMakeExecutable(initConstrainedTerm, finalConstrainedTerm, symbolTable):
+def kevmMakeExecutable(initConstrainedTerm, finalConstrainedTerm):
     (initState,  initConstraint)  = splitConfigAndConstraints(initConstrainedTerm)
     (finalState, finalConstraint) = splitConfigAndConstraints(finalConstrainedTerm)
     initConstraints               = flattenLabel('#And', initConstraint)
@@ -333,8 +341,8 @@ def kevmSanitizeConfig(initConstrainedTerm):
     constraint          = kevmUndoMacros(constraint)
     return buildAssoc(KConstant('#Top'), '#And', [state, constraint])
 
-def kevmProveClaim(directory, mainFileName, mainModuleName, claim, claimId, symbolTable, kevmArgs = [], teeOutput = False, dieOnFail = False, logFile = None):
-    logAxiomsFile = directory + '/' + claimId.lower() + '-debug.log' if logFile is None else logFile
+def kevmProveClaim(kevm, mainFileName, mainModuleName, claim, claimId, kevmArgs = [], teeOutput = False, dieOnFail = False, logFile = None):
+    logAxiomsFile = kevm.directory + '/' + claimId.lower() + '-debug.log' if logFile is None else logFile
     if os.path.exists(logAxiomsFile):
         os.remove(logAxiomsFile)
     newKevmArgs  = [ a for a in kevmArgs ]
@@ -346,12 +354,12 @@ def kevmProveClaim(directory, mainFileName, mainModuleName, claim, claimId, symb
                    , '--haskell-backend-arg' , '--log-entries'
                    , '--haskell-backend-arg' , 'DebugTransition'
                    ]
-    tmpClaim  = directory + '/' + claimId.lower() + '-spec.k'
+    tmpClaim  = kevm.directory + '/' + claimId.lower() + '-spec.k'
     tmpModule = claimId.upper() + '-SPEC'
     with open(tmpClaim, 'w') as tc:
         claimDefinition = makeDefinition([claim], tmpModule, [mainFileName], [mainModuleName])
         tc.write(_genFileTimestamp() + '\n')
-        tc.write(prettyPrintKast(claimDefinition, symbolTable) + '\n\n')
+        tc.write(kevm.prettyPrint(claimDefinition) + '\n\n')
         tc.flush()
         finalState = kevmProve(mainFileName, tmpClaim, tmpModule, kevmArgs = newKevmArgs, teeOutput = teeOutput, dieOnFail = dieOnFail)
         if finalState == KConstant('#Top'):
@@ -361,15 +369,14 @@ def kevmProveClaim(directory, mainFileName, mainModuleName, claim, claimId, symb
         finalStates = [ kevmSanitizeConfig(fs) for fs in flattenLabel('#Or', finalState) ]
         return buildAssoc(KConstant('#Bottom'), '#Or', finalStates)
 
-def kevmGetBasicBlocks(directory, mainFileName, mainModuleName, initConstrainedTerm, claimId, symbolTable, debug = False, maxDepth = 1000, isTerminal = None):
+def kevmGetBasicBlocks(kevm, mainFileName, mainModuleName, initConstrainedTerm, claimId, debug = False, maxDepth = 1000, isTerminal = None):
     claim       = buildEmptyClaim(initConstrainedTerm, claimId)
-    logFileName = directory + '/' + claimId.lower() + '-debug.log'
-    nextState   = kevmProveClaim( directory
+    logFileName = kevm.directory + '/' + claimId.lower() + '-debug.log'
+    nextState   = kevmProveClaim( kevm
                                 , mainFileName
                                 , mainModuleName
                                 , claim
                                 , claimId
-                                , symbolTable
                                 , kevmArgs = [ '--branching-allowed' , '1' , '--depth' , str(maxDepth) ]
                                 , teeOutput = debug
                                 , logFile = logFileName
@@ -390,7 +397,7 @@ def kevmGetBasicBlocks(directory, mainFileName, mainModuleName, initConstrainedT
 
     if isTerminal is not None and isTerminal(nextStates[0]):
         depth -= 1
-        nextState = kevmProveClaim(directory, mainFileName, mainModuleName, claim, claimId, symbolTable, kevmArgs = ['--depth', str(depth)], teeOutput = debug)
+        nextState = kevmProveClaim(kevm, mainFileName, mainModuleName, claim, claimId, kevmArgs = ['--depth', str(depth)], teeOutput = debug)
         nextStates = flattenLabel('#Or', nextState)
 
     _notif('Found ' + str(len(nextStates)) + ' basic blocks for ' + claimId + ' at depth ' + str(depth) + '.')
@@ -494,7 +501,7 @@ def buildEmptyClaim(initConstrainedTerm, claimId):
     finalConstrainedTerm = buildTerminal(initConstrainedTerm)
     return buildRule(claimId, initConstrainedTerm, finalConstrainedTerm, claim = True, keepVars = collectFreeVars(initConstrainedTerm))
 
-def writeCFG(cfg, symbolTable, graphvizFile = None):
+def writeCFG(cfg, semantics, graphvizFile = None):
     states = set(list(cfg['graph'].keys()) + cfg['init'] + cfg['terminal'] + cfg['frontier'] + cfg['stuck'])
     cfgLines = [ '// CFG:'
                , '//     states:      ' + ', '.join([str(s) for s in states])
@@ -506,10 +513,10 @@ def writeCFG(cfg, symbolTable, graphvizFile = None):
                ]
     for initStateId in cfg['graph']:
         for finState in cfg['graph'][initStateId]:
-            (finalStateId, label, depth) = (finState['successor'], printConstraint(finState['constraint'], symbolTable), finState['depth'])
+            (finalStateId, label, depth) = (finState['successor'], semantics.prettyPrintConstraint(finState['constraint']), finState['depth'])
             cfgLines.append('//         ' + '{0:>3}'.format(initStateId) + ' -> ' + '{0:>3}'.format(finalStateId) + ' [' + '{0:>5}'.format(depth) + ' steps]: ' + label)
             if 'accountUpdate' in finState:
-                cfgLines.append('\n//                                   ' + '\n//                                   '.join(prettyPrintKast(finState['accountUpdate'], symbolTable).split('\n')))
+                cfgLines.append('\n//                                   ' + '\n//                                   '.join(semantics.prettyPrint(finState['accountUpdate']).split('\n')))
     if graphvizFile is not None:
         graph = Digraph()
         for s in states:
@@ -521,12 +528,12 @@ def writeCFG(cfg, symbolTable, graphvizFile = None):
             graph.node(str(s), label = label)
         for s in cfg['graph'].keys():
             for finState in cfg['graph'][s]:
-                (f, id, d) = (finState['successor'], printConstraint(finState['constraint'], symbolTable), finState['depth'])
+                (f, id, d) = (finState['successor'], semantics.prettyPrintConstraint(finState['constraint']), finState['depth'])
                 label = id
                 if d != 1:
                     label = label + ': ' + str(d) + ' steps'
                 if 'accountUpdate' in finState:
-                    label = label + '\n  ' + '\n  '.join(prettyPrintKast(finState['accountUpdate'], symbolTable).split('\n'))
+                    label = label + '\n  ' + '\n  '.join(semantics.prettyPrint(finState['accountUpdate']).split('\n'))
                 graph.edge(str(s), str(f), label = '  ' + label + '        ')
         graph.render(graphvizFile)
         _notif('Wrote graphviz rendering of CFG: ' + graphvizFile + '.pdf')
@@ -565,21 +572,20 @@ def kevmTransitionLabel(successor, initConstrainedTerm, finalConstrainedTerm, ne
         label['accountUpdate'] = accountUpdate
     return label
 
-def kevmWriteStateToFile(directory, contractName, stateId, state, symbolTable):
-    stateFileName = directory + '/' + contractName.lower() + '-state-' + stateId
+def kevmWriteStateToFile(kevm, contractName, stateId, state):
+    stateFileName = kevm.directory + '/' + contractName.lower() + '-state-' + stateId
     with open(stateFileName + '.json', 'w') as f:
         f.write(json.dumps(state, indent = 2))
     with open(stateFileName + '.k', 'w') as f:
         f.write(_genFileTimestamp() + '\n')
-        f.write(prettyPrintKast(state, symbolTable))
+        f.write(kevm.prettyPrint(state))
     _notif('Wrote state files: ' + stateFileName + '.{k,json}')
 
-def kevmSummarize( directory
+def kevmSummarize( kevm
                  , initState
                  , mainFileName
                  , mainModuleName
                  , contractName
-                 , symbolTable
                  , debug = False
                  , verify = False
                  , maxBlocks = None
@@ -588,9 +594,9 @@ def kevmSummarize( directory
                  , graphvizFile = None
                  ):
 
-    intermediateClaimsFile   = directory + '/' + contractName.lower() + '-basic-blocks-spec.k'
+    intermediateClaimsFile   = kevm.directory + '/' + contractName.lower() + '-basic-blocks-spec.k'
     intermediateClaimsModule = contractName.upper() + '-BASIC-BLOCKS-SPEC'
-    cfgFile                  = directory + '/' + contractName.lower() + '-cfg.json'
+    cfgFile                  = kevm.directory + '/' + contractName.lower() + '-cfg.json'
 
     frontier        = [(startOffset + i, ct) for (i, ct) in enumerate(flattenLabel('#Or', initState))]
     seenStates      = []
@@ -614,15 +620,14 @@ def kevmSummarize( directory
             cfg['graph'][initStateId] = []
         seenStates.append((initStateId, initState))
         if initStateId not in writtenStates:
-            kevmWriteStateToFile(directory, contractName, str(initStateId), initState, symbolTable)
+            kevmWriteStateToFile(kevm, contractName, str(initStateId), initState)
             writtenStates.append(initStateId)
         claimId                           = contractName.upper() + '-GEN-' + str(initStateId) + '-TO-MAX' + str(maxDepth)
-        (depth, nextStatesAndConstraints) = kevmGetBasicBlocks( directory
+        (depth, nextStatesAndConstraints) = kevmGetBasicBlocks( kevm
                                                               , mainFileName
                                                               , mainModuleName
                                                               , initState
                                                               , claimId
-                                                              , symbolTable
                                                               , debug = debug
                                                               , maxDepth = maxDepth
                                                               , isTerminal = isTerminal
@@ -631,7 +636,7 @@ def kevmSummarize( directory
             finalStateId = nextStateId
             nextStateId  = nextStateId + 1
             if finalStateId not in writtenStates:
-                kevmWriteStateToFile(directory, contractName, str(finalStateId), finalState, symbolTable)
+                kevmWriteStateToFile(kevm, contractName, str(finalStateId), finalState)
                 writtenStates.append(finalStateId)
 
             cfg['graph'][initStateId].append(kevmTransitionLabel(finalStateId, initState, finalState, newConstraint, depth))
@@ -653,12 +658,12 @@ def kevmSummarize( directory
             if i < len(nextStatesAndConstraints) - 1:
                 cfg['frontier'].insert(0, initStateId)
 
-            (initState, finalState) = kevmMakeExecutable(initState, finalState, symbolTable)
+            (initState, finalState) = kevmMakeExecutable(initState, finalState)
             basicBlockId = contractName.upper() + '-BASIC-BLOCK-' + str(initStateId) + '-TO-' + str(finalStateId)
             newClaim     = buildRule(basicBlockId, initState, finalState, claim = True)
             newClaims.append(newClaim)
             if verify:
-                kevmProveClaim(directory, mainFileName, mainModuleName, newClaim, basicBlockId, symbolTable, dieOnFail = True)
+                kevmProveClaim(kevm, mainFileName, mainModuleName, newClaim, basicBlockId, dieOnFail = True)
                 _notif('Verified claim: ' + basicBlockId)
             newRule = buildRule(basicBlockId, initState, finalState, claim = False, priority = 35)
             newRules.append(newRule)
@@ -666,8 +671,8 @@ def kevmSummarize( directory
             with open(intermediateClaimsFile, 'w') as intermediate:
                 claimDefinition = makeDefinition(newClaims, intermediateClaimsModule, [mainFileName], [mainModuleName])
                 intermediate.write(_genFileTimestamp() + '\n')
-                intermediate.write(prettyPrintKast(claimDefinition, symbolTable) + '\n\n')
-                intermediate.write(writeCFG(cfg, symbolTable, graphvizFile = graphvizFile) + '\n')
+                intermediate.write(kevm.prettyPrint(claimDefinition) + '\n\n')
+                intermediate.write(writeCFG(cfg, kevm, graphvizFile = graphvizFile) + '\n')
                 intermediate.flush()
                 _notif('Wrote updated claims file: ' + intermediateClaimsFile)
 
@@ -687,7 +692,7 @@ summarizeArgs.add_argument('main-module-name' , type = str, help = 'Name of main
 summarizeArgs.add_argument('-n', '--max-blocks', type = int, nargs = '?', help = 'Maximum number of basic block summarize to generate.')
 summarizeArgs.add_argument('--resume-from-state', type = int, nargs = '?', help = 'Start from saved state file in summarization directory.')
 summarizeArgs.add_argument('--debug', default = False, action = 'store_true', help = 'Keep temporary files around.')
-summarizeArgs.add_argument('--verify',    default = True,  action = 'store_true',  help = 'Prove generated claims before outputting them.')
+summarizeArgs.add_argument('--verify', default = True, action = 'store_true', help = 'Prove generated claims before outputting them.')
 summarizeArgs.add_argument('--no-verify', dest = 'verify', action = 'store_false', help = 'Do not prove generated claims before outputting them.')
 summarizeArgs.add_argument('--graphviz', default = False, action = 'store_true', help = 'Write graphviz rendering of CFG.')
 summarizeArgs.add_argument('-o', '--output', type = argparse.FileType('w'), default = '-')
@@ -696,17 +701,17 @@ def kevmPykMain(args, kompiled_dir):
 
     if args['command'] == 'summarize':
 
-        json_definition = readKastTerm(kompiled_dir + '/compiled.json')
-        symbolTable     = kevmSymbolTable(json_definition, opinionated = True)
+        kevm             = KSemantics(kompiled_dir)
+        kevm.symbolTable = kevmSymbolTable(kevm.symbolTable)
 
-        mainFileName             = args['main-module-file']
-        directory                = '/'.join(mainFileName.split('/')[0:-1])
-        mainModuleName           = args['main-module-name']
-        contractName             = args['contract-name']
-        summaryRulesModule       = contractName.upper() + '-BASIC-BLOCKS'
-        maxBlocks                = None if 'max_blocks' not in args else args['max_blocks']
-        resumeFromState          = None if 'max_blocks' not in args else args['resume_from_state']
-        graphvizFile             = None if not args['graphviz']     else directory + '/' + contractName.lower() + '-basic-blocks'
+        mainFileName       = args['main-module-file']
+        directory          = '/'.join(mainFileName.split('/')[0:-1])
+        mainModuleName     = args['main-module-name']
+        contractName       = args['contract-name']
+        summaryRulesModule = contractName.upper() + '-BASIC-BLOCKS'
+        maxBlocks          = None if 'max_blocks' not in args else args['max_blocks']
+        resumeFromState    = None if 'max_blocks' not in args else args['resume_from_state']
+        graphvizFile       = None if not args['graphviz']     else directory + '/' + contractName.lower() + '-basic-blocks'
 
         if resumeFromState is None:
             initState = buildInitState(contractName, json.loads(args['init-term'].read())['term'])
@@ -715,12 +720,11 @@ def kevmPykMain(args, kompiled_dir):
                 initState = json.loads(resumeState.read())
         initState = kevmSanitizeConfig(initState)
 
-        (newRules, cfg)   = kevmSummarize( directory
+        (newRules, cfg)   = kevmSummarize( kevm
                                          , initState
                                          , mainFileName
                                          , mainModuleName
                                          , contractName
-                                         , symbolTable
                                          , debug = args['debug']
                                          , verify = args['verify']
                                          , maxBlocks = maxBlocks
@@ -730,8 +734,8 @@ def kevmPykMain(args, kompiled_dir):
         summaryDefinition = makeDefinition(newRules, summaryRulesModule, ['edsl.md', 'lemmas/infinite-gas.k'], ['EDSL', 'INFINITE-GAS'])
 
         args['output'].write(_genFileTimestamp() + '\n')
-        args['output'].write(prettyPrintKast(summaryDefinition, symbolTable) + '\n\n')
-        args['output'].write(writeCFG(cfg, symbolTable, graphvizFile = graphvizFile) + '\n')
+        args['output'].write(kevm.prettyPrint(summaryDefinition) + '\n\n')
+        args['output'].write(writeCFG(cfg, kevm, graphvizFile = graphvizFile) + '\n')
         args['output'].flush()
 
 if __name__ == '__main__':
