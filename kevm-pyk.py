@@ -262,8 +262,7 @@ def kevmProve(mainFile, specFile, specModule, kevmArgs = [], teeOutput = False, 
             return finalState
         if dieOnFail:
             _fatal('Unable to prove claim: ' + specFile)
-        finalStates = [ structurallyFrameKCell(s) for s in flattenLabel('#Or', finalState) ]
-        return buildAssoc(KConstant('#Bottom'), '#Or', finalStates)
+        return finalState
     except:
         sys.stderr.write(stdout + '\n')
         sys.stderr.write(stderr + '\n')
@@ -366,7 +365,7 @@ def kevmProveClaim(kevm, mainFileName, mainModuleName, claim, claimId, kevmArgs 
             if len(getAppliedAxiomList(logAxiomsFile)) == 0:
                 _fatal('Proof took zero steps, likely the LHS is invalid: ' + tmpClaim)
             return KConstant('#Top')
-        finalStates = [ kevmSanitizeConfig(fs) for fs in flattenLabel('#Or', finalState) ]
+        finalStates = [ kevmSanitizeConfig(structurallyFrameKCell(s)) for s in flattenLabel('#Or', finalState) ]
         return buildAssoc(KConstant('#Bottom'), '#Or', finalStates)
 
 def kevmGetBasicBlocks(kevm, mainFileName, mainModuleName, initConstrainedTerm, claimId, debug = False, maxDepth = 1000, isTerminal = None):
