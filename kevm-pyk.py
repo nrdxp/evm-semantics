@@ -493,6 +493,8 @@ def writeCFG(cfg, symbolTable, graphvizFile = None):
         for finState in cfg['graph'][initStateId]:
             (finalStateId, label, depth) = (finState['successor'], printConstraint(finState['constraint'], symbolTable), finState['depth'])
             cfgLines.append('//         ' + '{0:>3}'.format(initStateId) + ' -> ' + '{0:>3}'.format(finalStateId) + ' [' + '{0:>5}'.format(depth) + ' steps]: ' + label)
+            if 'accountUpdate' in finState:
+                cfgLines.append('\n//                                   ' + '\n//                                   '.join(prettyPrintKast(finState['accountUpdate'], symbolTable).split('\n')))
     if graphvizFile is not None:
         graph = Digraph()
         for s in states:
@@ -508,6 +510,8 @@ def writeCFG(cfg, symbolTable, graphvizFile = None):
                 label = id
                 if d != 1:
                     label = label + ': ' + str(d) + ' steps'
+                if 'accountUpdate' in finState:
+                    label = label + '\n  ' + '\n  '.join(prettyPrintKast(finState['accountUpdate'], symbolTable).split('\n'))
                 graph.edge(str(s), str(f), label = '  ' + label + '        ')
         graph.render(graphvizFile)
         _notif('Wrote graphviz rendering of CFG: ' + graphvizFile + '.pdf')
@@ -536,7 +540,15 @@ def buildInitState(contractName, constrainedTerm):
     return buildAssoc(KConstant('#Top'), '#And', [applyCellSubst(constrainedTerm, cellSubst)] + constraints)
 
 def kevmTransitionLabel(successor, initConstrainedTerm, finalConstrainedTerm, newConstraint, depth):
-    return { 'successor': successor, 'constraint': newConstraint, 'depth': depth }
+    label = { 'successor': successor, 'constraint': newConstraint, 'depth': depth }
+    initAccounts  = getCell(initConstrainedTerm,  'ACCOUNTS_CELL')
+    finalAccounts = getCell(finalConstrainedTerm, 'ACCOUNTS_CELL')
+    if initAccounts != finalAccounts:
+        accountUpdate = pushDownRewrites(KRewrite(initAccounts, finalAccounts))
+        accountUpdate = uselessVarsToDots(accountUpdate)
+        accountUpdate = collapseDots(accountUpdate)
+        label['accountUpdate'] = accountUpdate
+    return label
 
 def kevmWriteStateToFile(directory, contractName, stateId, state, symbolTable):
     stateFileName = directory + '/' + contractName.lower() + '-state-' + stateId
