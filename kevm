@@ -346,7 +346,6 @@ run_summarize() {
         "${init_state_json}"                                          \
         "${contract_name}"                                            \
         "${verif_file_name}"                                          \
-        "${verif_module_name}"                                        \
         "$@"
 }
 

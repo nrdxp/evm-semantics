@@ -349,7 +349,7 @@ def kevmSanitizeConfig(initConstrainedTerm):
     constraint          = kevmUndoMacros(constraint)
     return buildAssoc(KConstant('#Top'), '#And', [state, constraint])
 
-def kevmProveClaim(kevm, mainFileName, mainModuleName, claim, claimId, kevmArgs = [], teeOutput = False, dieOnFail = False, logFile = None):
+def kevmProveClaim(kevm, mainFileName, claim, claimId, kevmArgs = [], teeOutput = False, dieOnFail = False, logFile = None):
     logAxiomsFile = kevm.directory + '/' + claimId.lower() + '-debug.log' if logFile is None else logFile
     if os.path.exists(logAxiomsFile):
         os.remove(logAxiomsFile)
@@ -365,7 +365,7 @@ def kevmProveClaim(kevm, mainFileName, mainModuleName, claim, claimId, kevmArgs 
     tmpClaim      = kevm.directory + '/' + claimId.lower() + '-spec.k'
     tmpModuleName = claimId.upper() + '-SPEC'
     with open(tmpClaim, 'w') as tc:
-        claimDefinition = makeDefinition([claim], tmpModuleName, [mainFileName], [mainModuleName])
+        claimDefinition = makeDefinition([claim], tmpModuleName, [mainFileName], [kevm.mainModule])
         tc.write(_genFileTimestamp() + '\n')
         tc.write(kevm.prettyPrint(claimDefinition) + '\n\n')
         tc.flush()
@@ -376,12 +376,11 @@ def kevmProveClaim(kevm, mainFileName, mainModuleName, claim, claimId, kevmArgs 
             return KConstant('#Top')
         return finalState
 
-def kevmGetBasicBlocks(kevm, mainFileName, mainModuleName, initConstrainedTerm, claimId, debug = False, maxDepth = 1000, isTerminal = None):
+def kevmGetBasicBlocks(kevm, mainFileName, initConstrainedTerm, claimId, debug = False, maxDepth = 1000, isTerminal = None):
     claim       = buildEmptyClaim(initConstrainedTerm, claimId)
     logFileName = kevm.directory + '/' + claimId.lower() + '-debug.log'
     nextState   = kevmProveClaim( kevm
                                 , mainFileName
-                                , mainModuleName
                                 , claim
                                 , claimId
                                 , kevmArgs = [ '--branching-allowed' , '1' , '--depth' , str(maxDepth) ]
@@ -404,7 +403,7 @@ def kevmGetBasicBlocks(kevm, mainFileName, mainModuleName, initConstrainedTerm, 
 
     if isTerminal is not None and isTerminal(nextStates[0]):
         depth -= 1
-        nextState  = kevmProveClaim(kevm, mainFileName, mainModuleName, claim, claimId, kevmArgs = ['--depth', str(depth)], teeOutput = debug)
+        nextState  = kevmProveClaim(kevm, mainFileName, claim, claimId, kevmArgs = ['--depth', str(depth)], teeOutput = debug)
         nextStates = [ kevmSanitizeConfig(structurallyFrameKCell(s)) for s in flattenLabel('#Or', nextState) ]
 
     _notif('Found ' + str(len(nextStates)) + ' basic blocks for ' + claimId + ' at depth ' + str(depth) + '.')
@@ -591,7 +590,6 @@ def kevmWriteStateToFile(kevm, contractName, stateId, state):
 def kevmSummarize( kevm
                  , initState
                  , mainFileName
-                 , mainModuleName
                  , contractName
                  , debug = False
                  , verify = False
@@ -632,7 +630,6 @@ def kevmSummarize( kevm
         claimId                           = contractName.upper() + '-GEN-' + str(initStateId) + '-TO-MAX' + str(maxDepth)
         (depth, nextStatesAndConstraints) = kevmGetBasicBlocks( kevm
                                                               , mainFileName
-                                                              , mainModuleName
                                                               , initState
                                                               , claimId
                                                               , debug = debug
@@ -670,13 +667,13 @@ def kevmSummarize( kevm
             newClaim     = buildRule(basicBlockId, initState, finalState, claim = True)
             newClaims.append(newClaim)
             if verify:
-                kevmProveClaim(kevm, mainFileName, mainModuleName, newClaim, basicBlockId, dieOnFail = True)
+                kevmProveClaim(kevm, mainFileName, newClaim, basicBlockId, dieOnFail = True)
                 _notif('Verified claim: ' + basicBlockId)
             newRule = buildRule(basicBlockId, initState, finalState, claim = False, priority = 35)
             newRules.append(newRule)
 
             with open(intermediateClaimsFile, 'w') as intermediate:
-                claimDefinition = makeDefinition(newClaims, intermediateClaimsModule, [mainFileName], [mainModuleName])
+                claimDefinition = makeDefinition(newClaims, intermediateClaimsModule, [mainFileName], [kevm.mainModule])
                 intermediate.write(_genFileTimestamp() + '\n')
                 intermediate.write(kevm.prettyPrint(claimDefinition) + '\n\n')
                 intermediate.write(writeCFG(cfg, kevm, graphvizFile = graphvizFile) + '\n')
@@ -695,7 +692,6 @@ summarizeArgs = pykCommandParsers.add_parser('summarize', help = 'Given a disjun
 summarizeArgs.add_argument('init-term' , type = argparse.FileType('r'), help = 'JSON representation of initial state.')
 summarizeArgs.add_argument('contract-name' , type = str, help = 'Name of contract to summarize.')
 summarizeArgs.add_argument('main-module-file' , type = str, help = 'Name of main verification file.')
-summarizeArgs.add_argument('main-module-name' , type = str, help = 'Name of main verification module.')
 summarizeArgs.add_argument('-n', '--max-blocks', type = int, nargs = '?', help = 'Maximum number of basic block summarize to generate.')
 summarizeArgs.add_argument('--resume-from-state', type = int, nargs = '?', help = 'Start from saved state file in summarization directory.')
 summarizeArgs.add_argument('--debug', default = False, action = 'store_true', help = 'Keep temporary files around.')
@@ -715,7 +711,6 @@ def kevmPykMain(args, kompiled_dir):
 
         mainFileName       = args['main-module-file']
         directory          = '/'.join(mainFileName.split('/')[0:-1])
-        mainModuleName     = args['main-module-name']
         contractName       = args['contract-name']
         summaryRulesModule = contractName.upper() + '-BASIC-BLOCKS'
         maxBlocks          = None if 'max_blocks' not in args else args['max_blocks']
@@ -732,7 +727,6 @@ def kevmPykMain(args, kompiled_dir):
         (newRules, cfg)   = kevmSummarize( kevm
                                          , initState
                                          , mainFileName
-                                         , mainModuleName
                                          , contractName
                                          , debug = args['debug']
                                          , verify = args['verify']
