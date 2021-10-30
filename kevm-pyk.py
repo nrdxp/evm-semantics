@@ -237,11 +237,24 @@ class KProve(KPrint):
         return self.prove(tmpClaim, tmpModuleName, args = args, haskellArgs = haskellArgs, logAxiomsFile = logAxiomsFile, dieOnFail = dieOnFail)
 
 class KSummarize(KProve):
-    def __init__(self, kompiledDirectory, mainFileName, buildInfeasible, isTerminal, sanitizeConfig, useDirectory = None):
+    def __init__(self, kompiledDirectory, mainFileName, summaryName, buildInfeasible, isTerminal, sanitizeConfig, useDirectory = None):
         super(KSummarize, self).__init__(kompiledDirectory, mainFileName, useDirectory = useDirectory)
+        self.summaryName     = summaryName
         self.buildInfeasible = buildInfeasible
         self.isTerminal      = isTerminal
         self.sanitizeConfig  = sanitizeConfig
+        self.useDirectory    = self.useDirectory + '/' + self.summaryName
+        if not os.path.exists(self.useDirectory):
+            os.makedirs(self.useDirectory)
+
+    def writeStateToFile(self, stateId, state):
+        stateFileName = self.useDirectory + '/state-' + str(stateId)
+        with open(stateFileName + '.json', 'w') as f:
+            f.write(json.dumps(state, indent = 2))
+        with open(stateFileName + '.k', 'w') as f:
+            f.write(_genFileTimestamp() + '\n')
+            f.write(self.prettyPrint(state))
+        _notif('Wrote state files: ' + stateFileName + '.{k,json}')
 
     def getBasicBlocks(self, initConstrainedTerm, claimId, maxDepth = 1000):
         finalConstrainedTerm = self.buildInfeasible(initConstrainedTerm)
@@ -568,15 +581,6 @@ def kevmTransitionLabel(successor, initConstrainedTerm, finalConstrainedTerm, ne
         label['accountUpdate'] = accountUpdate
     return label
 
-def kevmWriteStateToFile(kevm, contractName, stateId, state):
-    stateFileName = kevm.useDirectory + '/' + contractName.lower() + '-state-' + stateId
-    with open(stateFileName + '.json', 'w') as f:
-        f.write(json.dumps(state, indent = 2))
-    with open(stateFileName + '.k', 'w') as f:
-        f.write(_genFileTimestamp() + '\n')
-        f.write(kevm.prettyPrint(state))
-    _notif('Wrote state files: ' + stateFileName + '.{k,json}')
-
 def kevmSummarize( kevm
                  , initState
                  , contractName
@@ -588,9 +592,9 @@ def kevmSummarize( kevm
                  , graphvizFile = None
                  ):
 
-    intermediateClaimsFile   = kevm.useDirectory + '/' + contractName.lower() + '-basic-blocks-spec.k'
+    intermediateClaimsFile   = kevm.useDirectory + '/basic-blocks-spec.k'
     intermediateClaimsModule = contractName.upper() + '-BASIC-BLOCKS-SPEC'
-    cfgFile                  = kevm.useDirectory + '/' + contractName.lower() + '-cfg.json'
+    cfgFile                  = kevm.useDirectory + '/cfg.json'
 
     frontier        = [(startOffset + i, ct) for (i, ct) in enumerate(flattenLabel('#Or', initState))]
     seenStates      = []
@@ -614,15 +618,15 @@ def kevmSummarize( kevm
             cfg['graph'][initStateId] = []
         seenStates.append((initStateId, initState))
         if initStateId not in writtenStates:
-            kevmWriteStateToFile(kevm, contractName, str(initStateId), initState)
+            kevm.writeStateToFile(initStateId, initState)
             writtenStates.append(initStateId)
-        claimId                           = contractName.upper() + '-GEN-' + str(initStateId) + '-TO-MAX' + str(maxDepth)
+        claimId                           = 'GEN-' + str(initStateId) + '-TO-MAX' + str(maxDepth)
         (depth, nextStatesAndConstraints) = kevm.getBasicBlocks(initState, claimId, maxDepth = maxDepth)
         for (i, (finalState, newConstraint)) in enumerate(nextStatesAndConstraints):
             finalStateId = nextStateId
             nextStateId  = nextStateId + 1
             if finalStateId not in writtenStates:
-                kevmWriteStateToFile(kevm, contractName, str(finalStateId), finalState)
+                kevm.writeStateToFile(finalStateId, finalState)
                 writtenStates.append(finalStateId)
 
             cfg['graph'][initStateId].append(kevmTransitionLabel(finalStateId, initState, finalState, newConstraint, depth))
@@ -693,9 +697,9 @@ def kevmPykMain(args, kompiled_dir):
         summaryRulesModule = contractName.upper() + '-BASIC-BLOCKS'
         maxBlocks          = None if 'max_blocks' not in args else args['max_blocks']
         resumeFromState    = None if 'max_blocks' not in args else args['resume_from_state']
-        graphvizFile       = None if not args['graphviz']     else summaryDir + '/' + contractName.lower() + '-basic-blocks'
+        graphvizFile       = None if not args['graphviz']     else summaryDir + '/' + contractName.lower() + '/basic-blocks'
 
-        kevm             = KSummarize(kompiled_dir, mainFileName, kevmBuildInfeasible, kevmIsTerminal, kevmSanitizeConfig, useDirectory = summaryDir)
+        kevm             = KSummarize(kompiled_dir, mainFileName, contractName.lower(), kevmBuildInfeasible, kevmIsTerminal, kevmSanitizeConfig, useDirectory = summaryDir)
         kevm.symbolTable = kevmSymbolTable(kevm.symbolTable)
         kevm.prover      = [ 'kevm' , 'prove' ]
         kevm.proverArgs  = [ '--provex' , '--boundary-cells' , 'k,pc' ]
