@@ -175,27 +175,26 @@ class KSemantics:
     def prettyPrintConstraint(self, constraint):
         return self.prettyPrint(simplifyBool(unsafeMlPredToBool(constraint)))
 
-    def prove(self, specFile, specModuleName, args = [], haskellArgs = [], dieOnFail = False):
-        command = self.prover
-        command = command + [ specFile ]
-        command = command + [ '--backend'     , self.backend
-                            , '--directory'   , self.directory
-                            , '-I'            , self.directory
-                            , '--spec-module' , specModuleName
-                            , '--output'      , 'json'
-                            ]
-        command = command + self.proverArgs
-        command = command + args
-        _notif(' '.join(command))
+    def prove(self, specFile, specModuleName, args = [], haskellArgs = [], logAxiomsFile = None, dieOnFail = False):
+        logFile = kevm.directory + '/' + claimId.lower() + '-debug.log' if logAxiomsFile is None else logAxiomsFile
+        if os.path.exists(logFile):
+            os.remove(logFile)
+        haskellLogArgs = [ '--log' , logFile , '--log-format'  , 'oneline' , '--log-entries' , 'DebugTransition' ]
+        command  = self.prover
+        command += [ specFile ]
+        command += [ '--backend' , self.backend , '--directory' , self.directory , '-I' , self.directory , '--spec-module' , specModuleName , '--output' , 'json' ]
+        command += self.proverArgs
+        command += args
         commandEnv                   = os.environ.copy()
-        commandEnv['KORE_EXEC_OPTS'] = ' '.join(haskellArgs)
+        commandEnv['KORE_EXEC_OPTS'] = ' '.join(haskellArgs + haskellLogArgs)
+        _notif(' '.join(command))
         process = subprocess.Popen(command, stdout = subprocess.PIPE, stderr = subprocess.PIPE, universal_newlines = True, env = commandEnv)
         try:
             (stdout, stderr) = process.communicate(input = None)
             finalState       = json.loads(stdout)['term']
-            if finalState == KConstant('#Top'):
-                return finalState
-            if dieOnFail:
+            if finalState == KConstant('#Top') and len(getAppliedAxiomList(logFile)) == 0:
+                _fatal('Proof took zero steps, likely the LHS is invalid: ' + tmpClaim)
+            elif dieOnFail:
                 _fatal('Unable to prove claim: ' + specFile)
             return finalState
         except:
@@ -203,7 +202,7 @@ class KSemantics:
             sys.stderr.write(stderr + '\n')
             _fatal('Exiting...', exitCode = rc)
 
-    def proveClaim(self, claim, claimId, args = [], haskellArgs = [], dieOnFail = False):
+    def proveClaim(self, claim, claimId, args = [], haskellArgs = [], logAxiomsFile = None, dieOnFail = False):
         tmpClaim      = self.directory + '/' + claimId.lower() + '-spec.k'
         tmpModuleName = claimId.upper() + '-SPEC'
         with open(tmpClaim, 'w') as tc:
@@ -212,7 +211,7 @@ class KSemantics:
             tc.write(_genFileTimestamp() + '\n')
             tc.write(self.prettyPrint(claimDefinition) + '\n\n')
             tc.flush()
-        return self.prove(tmpClaim, tmpModuleName, args = args, haskellArgs = haskellArgs, dieOnFail = dieOnFail)
+        return self.prove(tmpClaim, tmpModuleName, args = args, haskellArgs = haskellArgs, logAxiomsFile = logAxiomsFile, dieOnFail = dieOnFail)
 
 ### Utilities
 
@@ -366,20 +365,8 @@ def kevmSanitizeConfig(initConstrainedTerm):
     constraint          = kevmUndoMacros(constraint)
     return buildAssoc(KConstant('#Top'), '#And', [state, constraint])
 
-def kevmProveClaim(kevm, claim, claimId, kevmArgs = [], dieOnFail = False, logFile = None):
-    logAxiomsFile = kevm.directory + '/' + claimId.lower() + '-debug.log' if logFile is None else logFile
-    if os.path.exists(logAxiomsFile):
-        os.remove(logAxiomsFile)
-    haskellArgs = [ '--log'         , logAxiomsFile
-                  , '--log-format'  , 'oneline'
-                  , '--log-entries' , 'DebugTransition'
-                  ]
-    finalState = kevm.proveClaim(claim, claimId, args = kevmArgs, haskellArgs = haskellArgs, dieOnFail = dieOnFail)
-    if finalState == KConstant('#Top'):
-        if len(getAppliedAxiomList(logAxiomsFile)) == 0:
-            _fatal('Proof took zero steps, likely the LHS is invalid: ' + tmpClaim)
-        return KConstant('#Top')
-    return finalState
+def kevmProveClaim(kevm, claim, claimId, kevmArgs = [], dieOnFail = False, logAxiomsFile = None):
+    return kevm.proveClaim(claim, claimId, args = kevmArgs, dieOnFail = dieOnFail, logAxiomsFile = logAxiomsFile)
 
 def kevmGetBasicBlocks(kevm, initConstrainedTerm, claimId, maxDepth = 1000, isTerminal = None):
     claim       = buildEmptyClaim(initConstrainedTerm, claimId)
@@ -388,7 +375,7 @@ def kevmGetBasicBlocks(kevm, initConstrainedTerm, claimId, maxDepth = 1000, isTe
                                 , claim
                                 , claimId
                                 , kevmArgs = [ '--branching-allowed' , '1' , '--depth' , str(maxDepth) ]
-                                , logFile = logFileName
+                                , logAxiomsFile = logFileName
                                 )
     if nextState == KConstant('#Top'):
         _fatal('Proved claim for generating basic block, use unproveable claims for summaries.')
