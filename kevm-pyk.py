@@ -156,8 +156,10 @@ def applyConstraintSubstitutions(constrainedTerm):
 class KSemantics:
     def __init__(self, kompiledDirectory, mainFileName):
         self.kompiledDirectory = kompiledDirectory
-        self.mainFileName      = mainFileName
         self.directory         = '/'.join(self.kompiledDirectory.split('/')[0:-1])
+        self.mainFileName      = mainFileName
+        if self.mainFileName.startswith(self.directory + '/'):
+            self.mainFileName  = self.mainFileName[len(self.directory + '/'):]
         self.definition        = readKastTerm(self.kompiledDirectory + '/compiled.json')
         self.symbolTable       = buildSymbolTable(self.definition, opinionated = True)
         self.prover            = [ 'kprove' ]
@@ -202,7 +204,8 @@ class KSemantics:
         tmpClaim      = self.directory + '/' + claimId.lower() + '-spec.k'
         tmpModuleName = claimId.upper() + '-SPEC'
         with open(tmpClaim, 'w') as tc:
-            claimDefinition = makeDefinition([claim], tmpModuleName, [self.mainFileName], [self.mainModule])
+            claimModule     = KFlatModule(tmpModuleName, [self.mainModule], [claim])
+            claimDefinition = KDefinition(tmpModuleName, [claimModule], requires = [KRequire(self.mainFileName)])
             tc.write(_genFileTimestamp() + '\n')
             tc.write(self.prettyPrint(claimDefinition) + '\n\n')
             tc.flush()
