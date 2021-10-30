@@ -371,13 +371,14 @@ def kevmSanitizeConfig(initConstrainedTerm):
     constraint          = kevmUndoMacros(constraint)
     return buildAssoc(KConstant('#Top'), '#And', [state, constraint])
 
-def kevmGetBasicBlocks(kevm, initConstrainedTerm, claimId, maxDepth = 1000, isTerminal = None):
-    claim       = buildEmptyClaim(initConstrainedTerm, claimId)
-    logFileName = kevm.directory + '/' + claimId.lower() + '-debug.log'
-    nextState   = kevm.proveClaim( claim , claimId , args = [ '--branching-allowed' , '1' , '--depth' , str(maxDepth) ] , logAxiomsFile = logFileName )
+def kevmGetBasicBlocks(kevm, initConstrainedTerm, claimId, buildInfeasible, isTerminal, sanitizeConfig, maxDepth = 1000):
+    finalConstrainedTerm = buildInfeasible(initConstrainedTerm)
+    claim                = buildRule(claimId, initConstrainedTerm, finalConstrainedTerm, claim = True, keepVars = collectFreeVars(initConstrainedTerm))
+    logFileName          = kevm.directory + '/' + claimId.lower() + '-debug.log'
+    nextState            = kevm.proveClaim( claim , claimId , args = [ '--branching-allowed' , '1' , '--depth' , str(maxDepth) ] , logAxiomsFile = logFileName )
     if nextState == KConstant('#Top'):
         _fatal('Proved claim for generating basic block, use unproveable claims for summaries.')
-    nextStates = [ kevmSanitizeConfig(s) for s in flattenLabel('#Or', nextState) ]
+    nextStates = [ sanitizeConfig(s) for s in flattenLabel('#Or', nextState) ]
 
     branching = False
     depth     = 0
@@ -392,7 +393,7 @@ def kevmGetBasicBlocks(kevm, initConstrainedTerm, claimId, maxDepth = 1000, isTe
     if isTerminal is not None and isTerminal(nextStates[0]):
         depth -= 1
         nextState  = kevm.proveClaim(claim, claimId, args = ['--depth', str(depth)])
-        nextStates = [ kevmSanitizeConfig(s) for s in flattenLabel('#Or', nextState) ]
+        nextStates = [ sanitizeConfig(s) for s in flattenLabel('#Or', nextState) ]
 
     _notif('Found ' + str(len(nextStates)) + ' basic blocks for ' + claimId + ' at depth ' + str(depth) + '.')
 
@@ -476,10 +477,10 @@ def subsumes(constrainedTerm1, constrainedTerm2):
             return True
     return False
 
-def isTerminal(constrainedTerm):
+def kevmIsTerminal(constrainedTerm):
     return getCell(constrainedTerm, 'K_CELL') == KSequence([KConstant('#halt_EVM_KItem'), ktokenDots])
 
-def buildTerminal(constrainedTerm):
+def kevmBuildInfeasible(constrainedTerm):
     (state, _)      = splitConfigAndConstraints(constrainedTerm)
     (config, subst) = splitConfigFrom(state)
     for s in subst:
@@ -489,10 +490,6 @@ def buildTerminal(constrainedTerm):
     return substitute(config, subst)
 
 ### Summarization Utilities
-
-def buildEmptyClaim(initConstrainedTerm, claimId):
-    finalConstrainedTerm = buildTerminal(initConstrainedTerm)
-    return buildRule(claimId, initConstrainedTerm, finalConstrainedTerm, claim = True, keepVars = collectFreeVars(initConstrainedTerm))
 
 def writeCFG(cfg, semantics, graphvizFile = None):
     states = set(list(cfg['graph'].keys()) + cfg['init'] + cfg['terminal'] + cfg['frontier'] + cfg['stuck'])
@@ -616,8 +613,10 @@ def kevmSummarize( kevm
         (depth, nextStatesAndConstraints) = kevmGetBasicBlocks( kevm
                                                               , initState
                                                               , claimId
+                                                              , kevmBuildInfeasible
+                                                              , kevmIsTerminal
+                                                              , kevmSanitizeConfig
                                                               , maxDepth = maxDepth
-                                                              , isTerminal = isTerminal
                                                               )
         for (i, (finalState, newConstraint)) in enumerate(nextStatesAndConstraints):
             finalStateId = nextStateId
@@ -627,7 +626,7 @@ def kevmSummarize( kevm
                 writtenStates.append(finalStateId)
 
             cfg['graph'][initStateId].append(kevmTransitionLabel(finalStateId, initState, finalState, newConstraint, depth))
-            if isTerminal(finalState):
+            if kevmIsTerminal(finalState):
                 cfg['terminal'].append(finalStateId)
             elif len(nextStatesAndConstraints) == 1 and depth != maxDepth:
                 cfg['stuck'].append(finalStateId)
