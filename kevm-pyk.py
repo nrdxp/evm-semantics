@@ -5,12 +5,12 @@ from   datetime import datetime
 from   graphviz import Digraph
 import hashlib
 import os
+import subprocess
 import sys
 import time
 
 from   pyk          import *
 from   pyk.__main__ import main, pykArgs, pykCommandParsers
-from   pyk.__init__ import _teeProcessStdout
 
 sys.setrecursionlimit(15000000)
 
@@ -165,9 +165,9 @@ class KSemantics:
         self.prover            = [ 'kprove' ]
         self.proverArgs        = [ ]
         with open(self.kompiledDirectory + '/backend.txt', 'r') as ba:
-            self.backend     = ba.read()
+            self.backend       = ba.read()
         with open(self.kompiledDirectory + '/mainModule.txt', 'r') as mm:
-            self.mainModule  = mm.read()
+            self.mainModule    = mm.read()
 
     def prettyPrint(self, term):
         return prettyPrintKast(term, self.symbolTable)
@@ -175,7 +175,7 @@ class KSemantics:
     def prettyPrintConstraint(self, constraint):
         return self.prettyPrint(simplifyBool(unsafeMlPredToBool(constraint)))
 
-    def prove(self, specFile, specModuleName, args = [], teeOutput = False, dieOnFail = False):
+    def prove(self, specFile, specModuleName, args = [], dieOnFail = False):
         command = self.prover
         command = command + [ specFile ]
         command = command + [ '--backend'     , self.backend
@@ -187,9 +187,10 @@ class KSemantics:
         command = command + self.proverArgs
         command = command + args
         _notif(' '.join(command))
-        (rc, stdout, stderr) = _teeProcessStdout(command, tee = teeOutput)
+        process = subprocess.Popen(command, stdout = subprocess.PIPE, stderr = subprocess.PIPE, universal_newlines = True)
         try:
-            finalState = json.loads(stdout)['term']
+            (stdout, stderr) = process.communicate(input = None)
+            finalState       = json.loads(stdout)['term']
             if finalState == KConstant('#Top'):
                 return finalState
             if dieOnFail:
@@ -200,7 +201,7 @@ class KSemantics:
             sys.stderr.write(stderr + '\n')
             _fatal('Exiting...', exitCode = rc)
 
-    def proveClaim(self, claim, claimId, args = [], teeOutput = False, dieOnFail = False):
+    def proveClaim(self, claim, claimId, args = [], dieOnFail = False):
         tmpClaim      = self.directory + '/' + claimId.lower() + '-spec.k'
         tmpModuleName = claimId.upper() + '-SPEC'
         with open(tmpClaim, 'w') as tc:
@@ -209,7 +210,7 @@ class KSemantics:
             tc.write(_genFileTimestamp() + '\n')
             tc.write(self.prettyPrint(claimDefinition) + '\n\n')
             tc.flush()
-        return self.prove(tmpClaim, tmpModuleName, args = args, teeOutput = teeOutput, dieOnFail = dieOnFail)
+        return self.prove(tmpClaim, tmpModuleName, args = args, dieOnFail = dieOnFail)
 
 ### Utilities
 
@@ -363,7 +364,7 @@ def kevmSanitizeConfig(initConstrainedTerm):
     constraint          = kevmUndoMacros(constraint)
     return buildAssoc(KConstant('#Top'), '#And', [state, constraint])
 
-def kevmProveClaim(kevm, claim, claimId, kevmArgs = [], teeOutput = False, dieOnFail = False, logFile = None):
+def kevmProveClaim(kevm, claim, claimId, kevmArgs = [], dieOnFail = False, logFile = None):
     logAxiomsFile = kevm.directory + '/' + claimId.lower() + '-debug.log' if logFile is None else logFile
     if os.path.exists(logAxiomsFile):
         os.remove(logAxiomsFile)
@@ -376,21 +377,20 @@ def kevmProveClaim(kevm, claim, claimId, kevmArgs = [], teeOutput = False, dieOn
                    , '--haskell-backend-arg' , '--log-entries'
                    , '--haskell-backend-arg' , 'DebugTransition'
                    ]
-    finalState = kevm.proveClaim(claim, claimId, args = newKevmArgs, teeOutput = teeOutput, dieOnFail = dieOnFail)
+    finalState = kevm.proveClaim(claim, claimId, args = newKevmArgs, dieOnFail = dieOnFail)
     if finalState == KConstant('#Top'):
         if len(getAppliedAxiomList(logAxiomsFile)) == 0:
             _fatal('Proof took zero steps, likely the LHS is invalid: ' + tmpClaim)
         return KConstant('#Top')
     return finalState
 
-def kevmGetBasicBlocks(kevm, initConstrainedTerm, claimId, debug = False, maxDepth = 1000, isTerminal = None):
+def kevmGetBasicBlocks(kevm, initConstrainedTerm, claimId, maxDepth = 1000, isTerminal = None):
     claim       = buildEmptyClaim(initConstrainedTerm, claimId)
     logFileName = kevm.directory + '/' + claimId.lower() + '-debug.log'
     nextState   = kevmProveClaim( kevm
                                 , claim
                                 , claimId
                                 , kevmArgs = [ '--branching-allowed' , '1' , '--depth' , str(maxDepth) ]
-                                , teeOutput = debug
                                 , logFile = logFileName
                                 )
     if nextState == KConstant('#Top'):
@@ -409,7 +409,7 @@ def kevmGetBasicBlocks(kevm, initConstrainedTerm, claimId, debug = False, maxDep
 
     if isTerminal is not None and isTerminal(nextStates[0]):
         depth -= 1
-        nextState  = kevmProveClaim(kevm, claim, claimId, kevmArgs = ['--depth', str(depth)], teeOutput = debug)
+        nextState  = kevmProveClaim(kevm, claim, claimId, kevmArgs = ['--depth', str(depth)])
         nextStates = [ kevmSanitizeConfig(structurallyFrameKCell(s)) for s in flattenLabel('#Or', nextState) ]
 
     _notif('Found ' + str(len(nextStates)) + ' basic blocks for ' + claimId + ' at depth ' + str(depth) + '.')
@@ -596,7 +596,6 @@ def kevmWriteStateToFile(kevm, contractName, stateId, state):
 def kevmSummarize( kevm
                  , initState
                  , contractName
-                 , debug = False
                  , verify = False
                  , maxBlocks = None
                  , maxDepth = 1000
@@ -636,7 +635,6 @@ def kevmSummarize( kevm
         (depth, nextStatesAndConstraints) = kevmGetBasicBlocks( kevm
                                                               , initState
                                                               , claimId
-                                                              , debug = debug
                                                               , maxDepth = maxDepth
                                                               , isTerminal = isTerminal
                                                               )
@@ -698,7 +696,6 @@ summarizeArgs.add_argument('contract-name' , type = str, help = 'Name of contrac
 summarizeArgs.add_argument('main-module-file' , type = str, help = 'Name of main verification file.')
 summarizeArgs.add_argument('-n', '--max-blocks', type = int, nargs = '?', help = 'Maximum number of basic block summarize to generate.')
 summarizeArgs.add_argument('--resume-from-state', type = int, nargs = '?', help = 'Start from saved state file in summarization directory.')
-summarizeArgs.add_argument('--debug', default = False, action = 'store_true', help = 'Keep temporary files around.')
 summarizeArgs.add_argument('--verify', default = True, action = 'store_true', help = 'Prove generated claims before outputting them.')
 summarizeArgs.add_argument('--no-verify', dest = 'verify', action = 'store_false', help = 'Do not prove generated claims before outputting them.')
 summarizeArgs.add_argument('--graphviz', default = False, action = 'store_true', help = 'Write graphviz rendering of CFG.')
@@ -731,7 +728,6 @@ def kevmPykMain(args, kompiled_dir):
         (newRules, cfg)   = kevmSummarize( kevm
                                          , initState
                                          , contractName
-                                         , debug = args['debug']
                                          , verify = args['verify']
                                          , maxBlocks = maxBlocks
                                          , startOffset = resumeFromState if resumeFromState is not None else 0
