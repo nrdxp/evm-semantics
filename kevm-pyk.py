@@ -175,7 +175,7 @@ class KSemantics:
     def prettyPrintConstraint(self, constraint):
         return self.prettyPrint(simplifyBool(unsafeMlPredToBool(constraint)))
 
-    def prove(self, specFile, specModuleName, args = [], dieOnFail = False):
+    def prove(self, specFile, specModuleName, args = [], haskellArgs = [], dieOnFail = False):
         command = self.prover
         command = command + [ specFile ]
         command = command + [ '--backend'     , self.backend
@@ -187,7 +187,9 @@ class KSemantics:
         command = command + self.proverArgs
         command = command + args
         _notif(' '.join(command))
-        process = subprocess.Popen(command, stdout = subprocess.PIPE, stderr = subprocess.PIPE, universal_newlines = True)
+        commandEnv                   = os.environ.copy()
+        commandEnv['KORE_EXEC_OPTS'] = ' '.join(haskellArgs)
+        process = subprocess.Popen(command, stdout = subprocess.PIPE, stderr = subprocess.PIPE, universal_newlines = True, env = commandEnv)
         try:
             (stdout, stderr) = process.communicate(input = None)
             finalState       = json.loads(stdout)['term']
@@ -201,7 +203,7 @@ class KSemantics:
             sys.stderr.write(stderr + '\n')
             _fatal('Exiting...', exitCode = rc)
 
-    def proveClaim(self, claim, claimId, args = [], dieOnFail = False):
+    def proveClaim(self, claim, claimId, args = [], haskellArgs = [], dieOnFail = False):
         tmpClaim      = self.directory + '/' + claimId.lower() + '-spec.k'
         tmpModuleName = claimId.upper() + '-SPEC'
         with open(tmpClaim, 'w') as tc:
@@ -210,7 +212,7 @@ class KSemantics:
             tc.write(_genFileTimestamp() + '\n')
             tc.write(self.prettyPrint(claimDefinition) + '\n\n')
             tc.flush()
-        return self.prove(tmpClaim, tmpModuleName, args = args, dieOnFail = dieOnFail)
+        return self.prove(tmpClaim, tmpModuleName, args = args, haskellArgs = haskellArgs, dieOnFail = dieOnFail)
 
 ### Utilities
 
@@ -368,16 +370,11 @@ def kevmProveClaim(kevm, claim, claimId, kevmArgs = [], dieOnFail = False, logFi
     logAxiomsFile = kevm.directory + '/' + claimId.lower() + '-debug.log' if logFile is None else logFile
     if os.path.exists(logAxiomsFile):
         os.remove(logAxiomsFile)
-    newKevmArgs  = [ a for a in kevmArgs ]
-    newKevmArgs += [ '--haskell-backend-arg' , '--log'
-                   , '--haskell-backend-arg' , logAxiomsFile
-                   , '--haskell-backend-arg' , '--log-format'
-                   , '--haskell-backend-arg' , 'oneline'
-                   , '--haskell-backend-arg' , '--enable-log-timestamps'
-                   , '--haskell-backend-arg' , '--log-entries'
-                   , '--haskell-backend-arg' , 'DebugTransition'
-                   ]
-    finalState = kevm.proveClaim(claim, claimId, args = newKevmArgs, dieOnFail = dieOnFail)
+    haskellArgs = [ '--log'         , logAxiomsFile
+                  , '--log-format'  , 'oneline'
+                  , '--log-entries' , 'DebugTransition'
+                  ]
+    finalState = kevm.proveClaim(claim, claimId, args = kevmArgs, haskellArgs = haskellArgs, dieOnFail = dieOnFail)
     if finalState == KConstant('#Top'):
         if len(getAppliedAxiomList(logAxiomsFile)) == 0:
             _fatal('Proof took zero steps, likely the LHS is invalid: ' + tmpClaim)
