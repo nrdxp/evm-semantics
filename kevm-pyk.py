@@ -153,27 +153,31 @@ def applyConstraintSubstitutions(constrainedTerm):
             state = substitute(state, { substMatch['#VAR']['name'] : substMatch['#VAL'] })
     return buildAssoc(KConstant('#Top'), '#And', [state] + constraints)
 
-class KSemantics:
-    def __init__(self, kompiledDirectory, mainFileName):
+class KPrint:
+    def __init__(self, kompiledDirectory):
         self.kompiledDirectory = kompiledDirectory
+        self.definition        = readKastTerm(self.kompiledDirectory + '/compiled.json')
+        self.symbolTable       = buildSymbolTable(self.definition, opinionated = True)
+
+    def prettyPrint(self, kast):
+        return prettyPrintKast(kast, self.symbolTable)
+
+    def prettyPrintConstraint(self, constraint):
+        return self.prettyPrint(simplifyBool(unsafeMlPredToBool(constraint)))
+
+class KProve(KPrint):
+    def __init__(self, kompiledDirectory, mainFileName):
+        super(KProve, self).__init__(kompiledDirectory)
         self.directory         = '/'.join(self.kompiledDirectory.split('/')[0:-1])
         self.mainFileName      = mainFileName
         if self.mainFileName.startswith(self.directory + '/'):
             self.mainFileName  = self.mainFileName[len(self.directory + '/'):]
-        self.definition        = readKastTerm(self.kompiledDirectory + '/compiled.json')
-        self.symbolTable       = buildSymbolTable(self.definition, opinionated = True)
         self.prover            = [ 'kprove' ]
         self.proverArgs        = [ ]
         with open(self.kompiledDirectory + '/backend.txt', 'r') as ba:
             self.backend       = ba.read()
         with open(self.kompiledDirectory + '/mainModule.txt', 'r') as mm:
             self.mainModule    = mm.read()
-
-    def prettyPrint(self, term):
-        return prettyPrintKast(term, self.symbolTable)
-
-    def prettyPrintConstraint(self, constraint):
-        return self.prettyPrint(simplifyBool(unsafeMlPredToBool(constraint)))
 
     def prove(self, specFile, specModuleName, args = [], haskellArgs = [], logAxiomsFile = None, dieOnFail = False):
         logFile = kevm.directory + '/' + claimId.lower() + '-debug.log' if logAxiomsFile is None else logAxiomsFile
@@ -689,7 +693,7 @@ def kevmPykMain(args, kompiled_dir):
         resumeFromState    = None if 'max_blocks' not in args else args['resume_from_state']
         graphvizFile       = None if not args['graphviz']     else directory + '/' + contractName.lower() + '-basic-blocks'
 
-        kevm             = KSemantics(kompiled_dir, mainFileName)
+        kevm             = KProve(kompiled_dir, mainFileName)
         kevm.symbolTable = kevmSymbolTable(kevm.symbolTable)
         kevm.prover      = [ 'kevm' , 'prove' ]
         kevm.proverArgs  = [ '--provex' , '--boundary-cells' , 'k,pc' ]
