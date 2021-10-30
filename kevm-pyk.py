@@ -186,48 +186,47 @@ class KPrint:
         return self.prettyPrint(simplifyBool(unsafeMlPredToBool(constraint)))
 
 class KProve(KPrint):
-    def __init__(self, kompiledDirectory, mainFileName):
+    def __init__(self, kompiledDirectory, mainFileName, useDirectory = None):
         super(KProve, self).__init__(kompiledDirectory)
-        self.directory         = '/'.join(self.kompiledDirectory.split('/')[0:-1])
-        self.mainFileName      = mainFileName
-        if self.mainFileName.startswith(self.directory + '/'):
-            self.mainFileName  = self.mainFileName[len(self.directory + '/'):]
-        self.prover            = [ 'kprove' ]
-        self.proverArgs        = [ ]
+        self.directory      = '/'.join(self.kompiledDirectory.split('/')[0:-1])
+        self.useDirectory   = self.directory + '/kprove' if useDirectory is None else useDirectory
+        self.mainFileName   = mainFileName
+        self.prover         = [ 'kprove' ]
+        self.proverArgs     = [ ]
         with open(self.kompiledDirectory + '/backend.txt', 'r') as ba:
-            self.backend       = ba.read()
+            self.backend    = ba.read()
         with open(self.kompiledDirectory + '/mainModule.txt', 'r') as mm:
-            self.mainModule    = mm.read()
+            self.mainModule = mm.read()
 
     def prove(self, specFile, specModuleName, args = [], haskellArgs = [], logAxiomsFile = None, dieOnFail = False):
-        logFile = self.directory + '/' + specFile + '.debug-log' if logAxiomsFile is None else logAxiomsFile
+        logFile = specFile + '.debug-log' if logAxiomsFile is None else logAxiomsFile
         if os.path.exists(logFile):
             os.remove(logFile)
         haskellLogArgs = [ '--log' , logFile , '--log-format'  , 'oneline' , '--log-entries' , 'DebugTransition' ]
-        command  = self.prover
+        command  = [ c for c in self.prover ]
         command += [ specFile ]
         command += [ '--backend' , self.backend , '--directory' , self.directory , '-I' , self.directory , '--spec-module' , specModuleName , '--output' , 'json' ]
-        command += self.proverArgs
+        command += [ c for c in self.proverArgs ]
         command += args
         commandEnv                   = os.environ.copy()
         commandEnv['KORE_EXEC_OPTS'] = ' '.join(haskellArgs + haskellLogArgs)
         _notif(' '.join(command))
-        process = subprocess.Popen(command, stdout = subprocess.PIPE, stderr = subprocess.PIPE, universal_newlines = True, env = commandEnv)
+        process          = subprocess.Popen(command, stdout = subprocess.PIPE, stderr = subprocess.PIPE, universal_newlines = True, env = commandEnv)
+        (stdout, stderr) = process.communicate(input = None)
         try:
-            (stdout, stderr) = process.communicate(input = None)
-            finalState       = json.loads(stdout)['term']
-            if finalState == KConstant('#Top') and len(getAppliedAxiomList(logFile)) == 0:
-                _fatal('Proof took zero steps, likely the LHS is invalid: ' + tmpClaim)
-            elif dieOnFail:
-                _fatal('Unable to prove claim: ' + specFile)
-            return finalState
+            finalState = json.loads(stdout)['term']
         except:
             sys.stderr.write(stdout + '\n')
             sys.stderr.write(stderr + '\n')
-            _fatal('Exiting...', exitCode = rc)
+            _fatal('Exiting...', exitCode = process.returncode)
+        if finalState == KConstant('#Top') and len(getAppliedAxiomList(logFile)) == 0:
+            _fatal('Proof took zero steps, likely the LHS is invalid: ' + tmpClaim)
+        elif dieOnFail:
+            _fatal('Unable to prove claim: ' + specFile)
+        return finalState
 
     def proveClaim(self, claim, claimId, args = [], haskellArgs = [], logAxiomsFile = None, dieOnFail = False):
-        tmpClaim      = self.directory + '/' + claimId.lower() + '-spec.k'
+        tmpClaim      = self.useDirectory + '/' + claimId.lower() + '-spec.k'
         tmpModuleName = claimId.upper() + '-SPEC'
         with open(tmpClaim, 'w') as tc:
             claimModule     = KFlatModule(tmpModuleName, [self.mainModule], [claim])
@@ -238,8 +237,8 @@ class KProve(KPrint):
         return self.prove(tmpClaim, tmpModuleName, args = args, haskellArgs = haskellArgs, logAxiomsFile = logAxiomsFile, dieOnFail = dieOnFail)
 
 class KSummarize(KProve):
-    def __init__(self, kompiledDirectory, mainFileName, buildInfeasible, isTerminal, sanitizeConfig):
-        super(KSummarize, self).__init__(kompiledDirectory, mainFileName)
+    def __init__(self, kompiledDirectory, mainFileName, buildInfeasible, isTerminal, sanitizeConfig, useDirectory = None):
+        super(KSummarize, self).__init__(kompiledDirectory, mainFileName, useDirectory = useDirectory)
         self.buildInfeasible = buildInfeasible
         self.isTerminal      = isTerminal
         self.sanitizeConfig  = sanitizeConfig
@@ -247,7 +246,7 @@ class KSummarize(KProve):
     def getBasicBlocks(self, initConstrainedTerm, claimId, maxDepth = 1000):
         finalConstrainedTerm = self.buildInfeasible(initConstrainedTerm)
         claim                = buildRule(claimId, initConstrainedTerm, finalConstrainedTerm, claim = True, keepVars = collectFreeVars(initConstrainedTerm))
-        logFileName          = self.directory + '/' + claimId.lower() + '-debug.log'
+        logFileName          = self.useDirectory + '/' + claimId.lower() + '-debug.log'
         nextState            = self.proveClaim(claim, claimId, args = ['--branching-allowed', '1', '--depth', str(maxDepth)], logAxiomsFile = logFileName)
         if nextState == KConstant('#Top'):
             _fatal('Proved claim for generating basic block, use unproveable claims for summaries.')
@@ -570,7 +569,7 @@ def kevmTransitionLabel(successor, initConstrainedTerm, finalConstrainedTerm, ne
     return label
 
 def kevmWriteStateToFile(kevm, contractName, stateId, state):
-    stateFileName = kevm.directory + '/' + contractName.lower() + '-state-' + stateId
+    stateFileName = kevm.useDirectory + '/' + contractName.lower() + '-state-' + stateId
     with open(stateFileName + '.json', 'w') as f:
         f.write(json.dumps(state, indent = 2))
     with open(stateFileName + '.k', 'w') as f:
@@ -581,6 +580,7 @@ def kevmWriteStateToFile(kevm, contractName, stateId, state):
 def kevmSummarize( kevm
                  , initState
                  , contractName
+                 , summaryDir
                  , verify = False
                  , maxBlocks = None
                  , maxDepth = 1000
@@ -588,9 +588,9 @@ def kevmSummarize( kevm
                  , graphvizFile = None
                  ):
 
-    intermediateClaimsFile   = kevm.directory + '/' + contractName.lower() + '-basic-blocks-spec.k'
+    intermediateClaimsFile   = kevm.useDirectory + '/' + contractName.lower() + '-basic-blocks-spec.k'
     intermediateClaimsModule = contractName.upper() + '-BASIC-BLOCKS-SPEC'
-    cfgFile                  = kevm.directory + '/' + contractName.lower() + '-cfg.json'
+    cfgFile                  = kevm.useDirectory + '/' + contractName.lower() + '-cfg.json'
 
     frontier        = [(startOffset + i, ct) for (i, ct) in enumerate(flattenLabel('#Or', initState))]
     seenStates      = []
@@ -674,6 +674,7 @@ summarizeArgs = pykCommandParsers.add_parser('summarize', help = 'Given a disjun
 summarizeArgs.add_argument('init-term' , type = argparse.FileType('r'), help = 'JSON representation of initial state.')
 summarizeArgs.add_argument('contract-name' , type = str, help = 'Name of contract to summarize.')
 summarizeArgs.add_argument('main-module-file' , type = str, help = 'Name of main verification file.')
+summarizeArgs.add_argument('summary-dir' , type = str, help = 'Where to store summarized output.')
 summarizeArgs.add_argument('-n', '--max-blocks', type = int, nargs = '?', help = 'Maximum number of basic block summarize to generate.')
 summarizeArgs.add_argument('--resume-from-state', type = int, nargs = '?', help = 'Start from saved state file in summarization directory.')
 summarizeArgs.add_argument('--verify', default = True, action = 'store_true', help = 'Prove generated claims before outputting them.')
@@ -687,13 +688,14 @@ def kevmPykMain(args, kompiled_dir):
 
         mainFileName       = args['main-module-file']
         directory          = '/'.join(mainFileName.split('/')[0:-1])
+        summaryDir         = args['summary-dir']
         contractName       = args['contract-name']
         summaryRulesModule = contractName.upper() + '-BASIC-BLOCKS'
         maxBlocks          = None if 'max_blocks' not in args else args['max_blocks']
         resumeFromState    = None if 'max_blocks' not in args else args['resume_from_state']
-        graphvizFile       = None if not args['graphviz']     else directory + '/' + contractName.lower() + '-basic-blocks'
+        graphvizFile       = None if not args['graphviz']     else summaryDir + '/' + contractName.lower() + '-basic-blocks'
 
-        kevm             = KSummarize(kompiled_dir, mainFileName, kevmBuildInfeasible, kevmIsTerminal, kevmSanitizeConfig)
+        kevm             = KSummarize(kompiled_dir, mainFileName, kevmBuildInfeasible, kevmIsTerminal, kevmSanitizeConfig, useDirectory = summaryDir)
         kevm.symbolTable = kevmSymbolTable(kevm.symbolTable)
         kevm.prover      = [ 'kevm' , 'prove' ]
         kevm.proverArgs  = [ '--provex' , '--boundary-cells' , 'k,pc' ]
@@ -701,13 +703,14 @@ def kevmPykMain(args, kompiled_dir):
         if resumeFromState is None:
             initState = buildInitState(contractName, json.loads(args['init-term'].read())['term'])
         else:
-            with open(directory + '/' + contractName.lower() + '-state-' + str(args['resume_from_state']) + '.json', 'r') as resumeState:
+            with open(summaryDir + '/' + contractName.lower() + '-state-' + str(args['resume_from_state']) + '.json', 'r') as resumeState:
                 initState = json.loads(resumeState.read())
         initState = kevmSanitizeConfig(initState)
 
         (newRules, cfg)   = kevmSummarize( kevm
                                          , initState
                                          , contractName
+                                         , summaryDir
                                          , verify = args['verify']
                                          , maxBlocks = maxBlocks
                                          , startOffset = resumeFromState if resumeFromState is not None else 0
