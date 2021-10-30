@@ -365,18 +365,10 @@ def kevmSanitizeConfig(initConstrainedTerm):
     constraint          = kevmUndoMacros(constraint)
     return buildAssoc(KConstant('#Top'), '#And', [state, constraint])
 
-def kevmProveClaim(kevm, claim, claimId, kevmArgs = [], dieOnFail = False, logAxiomsFile = None):
-    return kevm.proveClaim(claim, claimId, args = kevmArgs, dieOnFail = dieOnFail, logAxiomsFile = logAxiomsFile)
-
 def kevmGetBasicBlocks(kevm, initConstrainedTerm, claimId, maxDepth = 1000, isTerminal = None):
     claim       = buildEmptyClaim(initConstrainedTerm, claimId)
     logFileName = kevm.directory + '/' + claimId.lower() + '-debug.log'
-    nextState   = kevmProveClaim( kevm
-                                , claim
-                                , claimId
-                                , kevmArgs = [ '--branching-allowed' , '1' , '--depth' , str(maxDepth) ]
-                                , logAxiomsFile = logFileName
-                                )
+    nextState   = kevm.proveClaim( claim , claimId , args = [ '--branching-allowed' , '1' , '--depth' , str(maxDepth) ] , logAxiomsFile = logFileName )
     if nextState == KConstant('#Top'):
         _fatal('Proved claim for generating basic block, use unproveable claims for summaries.')
     nextStates = [ kevmSanitizeConfig(structurallyFrameKCell(s)) for s in flattenLabel('#Or', nextState) ]
@@ -393,7 +385,7 @@ def kevmGetBasicBlocks(kevm, initConstrainedTerm, claimId, maxDepth = 1000, isTe
 
     if isTerminal is not None and isTerminal(nextStates[0]):
         depth -= 1
-        nextState  = kevmProveClaim(kevm, claim, claimId, kevmArgs = ['--depth', str(depth)])
+        nextState  = kevm.proveClaim(claim, claimId, args = ['--depth', str(depth)])
         nextStates = [ kevmSanitizeConfig(structurallyFrameKCell(s)) for s in flattenLabel('#Or', nextState) ]
 
     _notif('Found ' + str(len(nextStates)) + ' basic blocks for ' + claimId + ' at depth ' + str(depth) + '.')
@@ -653,7 +645,7 @@ def kevmSummarize( kevm
             newClaim     = buildRule(basicBlockId, initState, finalState, claim = True)
             newClaims.append(newClaim)
             if verify:
-                kevmProveClaim(kevm, newClaim, basicBlockId, dieOnFail = True)
+                kevm.proveClaim(newClaim, basicBlockId, dieOnFail = True)
                 _notif('Verified claim: ' + basicBlockId)
             newRule = buildRule(basicBlockId, initState, finalState, claim = False, priority = 35)
             newRules.append(newRule)
