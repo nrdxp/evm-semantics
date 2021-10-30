@@ -200,7 +200,7 @@ class KProve(KPrint):
             self.mainModule    = mm.read()
 
     def prove(self, specFile, specModuleName, args = [], haskellArgs = [], logAxiomsFile = None, dieOnFail = False):
-        logFile = kevm.directory + '/' + claimId.lower() + '-debug.log' if logAxiomsFile is None else logAxiomsFile
+        logFile = self.directory + '/' + specFile + '.debug-log' if logAxiomsFile is None else logAxiomsFile
         if os.path.exists(logFile):
             os.remove(logFile)
         haskellLogArgs = [ '--log' , logFile , '--log-format'  , 'oneline' , '--log-entries' , 'DebugTransition' ]
@@ -236,6 +236,54 @@ class KProve(KPrint):
             tc.write(self.prettyPrint(claimDefinition) + '\n\n')
             tc.flush()
         return self.prove(tmpClaim, tmpModuleName, args = args, haskellArgs = haskellArgs, logAxiomsFile = logAxiomsFile, dieOnFail = dieOnFail)
+
+class KSummarize(KProve):
+    def __init__(self, kompiledDirectory, mainFileName, buildInfeasible, isTerminal, sanitizeConfig):
+        super(KSummarize, self).__init__(kompiledDirectory, mainFileName)
+        self.buildInfeasible = buildInfeasible
+        self.isTerminal      = isTerminal
+        self.sanitizeConfig  = sanitizeConfig
+
+    def getBasicBlocks(self, initConstrainedTerm, claimId, maxDepth = 1000):
+        finalConstrainedTerm = self.buildInfeasible(initConstrainedTerm)
+        claim                = buildRule(claimId, initConstrainedTerm, finalConstrainedTerm, claim = True, keepVars = collectFreeVars(initConstrainedTerm))
+        logFileName          = self.directory + '/' + claimId.lower() + '-debug.log'
+        nextState            = self.proveClaim(claim, claimId, args = ['--branching-allowed', '1', '--depth', str(maxDepth)], logAxiomsFile = logFileName)
+        if nextState == KConstant('#Top'):
+            _fatal('Proved claim for generating basic block, use unproveable claims for summaries.')
+        nextStates = [ self.sanitizeConfig(s) for s in flattenLabel('#Or', nextState) ]
+
+        branching = False
+        depth     = 0
+        for axioms in getAppliedAxiomList(logFileName):
+            if len(axioms) > 1:
+                branching = True
+                depth += 1
+                break
+            else:
+                depth += 1
+
+        if self.isTerminal(nextStates[0]):
+            depth -= 1
+            nextState  = self.proveClaim(claim, claimId, args = ['--depth', str(depth)])
+            nextStates = [ self.sanitizeConfig(s) for s in flattenLabel('#Or', nextState) ]
+
+        _notif('Found ' + str(len(nextStates)) + ' basic blocks for ' + claimId + ' at depth ' + str(depth) + '.')
+
+        (_, initConstraint) = splitConfigAndConstraints(initConstrainedTerm)
+        initConstraints     = flattenLabel('#And', initConstraint)
+        statesAndConstraint = flattenLabel('#And', propagateUpConstraints(buildAssoc(KConstant('#Bottom'), '#Or', nextStates)))
+        nextStates          = flattenLabel('#Or', statesAndConstraint[0])
+        commonConstraints   = statesAndConstraint[1:]
+
+        newStatesAndConstraints = []
+        for ns in nextStates:
+            nsAndConstraint = flattenLabel('#And', ns)
+            ns              = buildAssoc(KConstant('#Top'), '#And', dedupeClauses(nsAndConstraint + commonConstraints))
+            newConstraint   = buildAssoc(KConstant('#Top'), '#And', dedupeClauses([ c for c in nsAndConstraint[1:] if c not in initConstraints ]))
+            newStatesAndConstraints.append((ns, newConstraint))
+
+        return (depth, newStatesAndConstraints)
 
 ### KEVM Stuff
 
@@ -370,47 +418,6 @@ def kevmSanitizeConfig(initConstrainedTerm):
     constraint          = buildAssoc(KConstant('#Top'), '#And', dedupeClauses(flattenLabel('#And', constraint)))
     constraint          = kevmUndoMacros(constraint)
     return buildAssoc(KConstant('#Top'), '#And', [state, constraint])
-
-def kevmGetBasicBlocks(kevm, initConstrainedTerm, claimId, buildInfeasible, isTerminal, sanitizeConfig, maxDepth = 1000):
-    finalConstrainedTerm = buildInfeasible(initConstrainedTerm)
-    claim                = buildRule(claimId, initConstrainedTerm, finalConstrainedTerm, claim = True, keepVars = collectFreeVars(initConstrainedTerm))
-    logFileName          = kevm.directory + '/' + claimId.lower() + '-debug.log'
-    nextState            = kevm.proveClaim( claim , claimId , args = [ '--branching-allowed' , '1' , '--depth' , str(maxDepth) ] , logAxiomsFile = logFileName )
-    if nextState == KConstant('#Top'):
-        _fatal('Proved claim for generating basic block, use unproveable claims for summaries.')
-    nextStates = [ sanitizeConfig(s) for s in flattenLabel('#Or', nextState) ]
-
-    branching = False
-    depth     = 0
-    for axioms in getAppliedAxiomList(logFileName):
-        if len(axioms) > 1:
-            branching = True
-            depth += 1
-            break
-        else:
-            depth += 1
-
-    if isTerminal is not None and isTerminal(nextStates[0]):
-        depth -= 1
-        nextState  = kevm.proveClaim(claim, claimId, args = ['--depth', str(depth)])
-        nextStates = [ sanitizeConfig(s) for s in flattenLabel('#Or', nextState) ]
-
-    _notif('Found ' + str(len(nextStates)) + ' basic blocks for ' + claimId + ' at depth ' + str(depth) + '.')
-
-    (_, initConstraint) = splitConfigAndConstraints(initConstrainedTerm)
-    initConstraints     = flattenLabel('#And', initConstraint)
-    statesAndConstraint = flattenLabel('#And', propagateUpConstraints(buildAssoc(KConstant('#Bottom'), '#Or', nextStates)))
-    nextStates          = flattenLabel('#Or', statesAndConstraint[0])
-    commonConstraints   = statesAndConstraint[1:]
-
-    newStatesAndConstraints = []
-    for ns in nextStates:
-        nsAndConstraint = flattenLabel('#And', ns)
-        ns              = buildAssoc(KConstant('#Top'), '#And', dedupeClauses(nsAndConstraint + commonConstraints))
-        newConstraint   = buildAssoc(KConstant('#Top'), '#And', dedupeClauses([ c for c in nsAndConstraint[1:] if c not in initConstraints ]))
-        newStatesAndConstraints.append((ns, newConstraint))
-
-    return (depth, newStatesAndConstraints)
 
 ### KEVM Specialization
 
@@ -610,14 +617,7 @@ def kevmSummarize( kevm
             kevmWriteStateToFile(kevm, contractName, str(initStateId), initState)
             writtenStates.append(initStateId)
         claimId                           = contractName.upper() + '-GEN-' + str(initStateId) + '-TO-MAX' + str(maxDepth)
-        (depth, nextStatesAndConstraints) = kevmGetBasicBlocks( kevm
-                                                              , initState
-                                                              , claimId
-                                                              , kevmBuildInfeasible
-                                                              , kevmIsTerminal
-                                                              , kevmSanitizeConfig
-                                                              , maxDepth = maxDepth
-                                                              )
+        (depth, nextStatesAndConstraints) = kevm.getBasicBlocks(initState, claimId, maxDepth = maxDepth)
         for (i, (finalState, newConstraint)) in enumerate(nextStatesAndConstraints):
             finalStateId = nextStateId
             nextStateId  = nextStateId + 1
@@ -693,7 +693,7 @@ def kevmPykMain(args, kompiled_dir):
         resumeFromState    = None if 'max_blocks' not in args else args['resume_from_state']
         graphvizFile       = None if not args['graphviz']     else directory + '/' + contractName.lower() + '-basic-blocks'
 
-        kevm             = KProve(kompiled_dir, mainFileName)
+        kevm             = KSummarize(kompiled_dir, mainFileName, kevmBuildInfeasible, kevmIsTerminal, kevmSanitizeConfig)
         kevm.symbolTable = kevmSymbolTable(kevm.symbolTable)
         kevm.prover      = [ 'kevm' , 'prove' ]
         kevm.proverArgs  = [ '--provex' , '--boundary-cells' , 'k,pc' ]
