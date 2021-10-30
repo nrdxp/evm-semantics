@@ -154,8 +154,9 @@ def applyConstraintSubstitutions(constrainedTerm):
     return buildAssoc(KConstant('#Top'), '#And', [state] + constraints)
 
 class KSemantics:
-    def __init__(self, kompiledDirectory):
+    def __init__(self, kompiledDirectory, mainFileName):
         self.kompiledDirectory = kompiledDirectory
+        self.mainFileName      = mainFileName
         self.directory         = '/'.join(self.kompiledDirectory.split('/')[0:-1])
         self.definition        = readKastTerm(self.kompiledDirectory + '/compiled.json')
         self.symbolTable       = buildSymbolTable(self.definition, opinionated = True)
@@ -196,6 +197,16 @@ class KSemantics:
             sys.stderr.write(stdout + '\n')
             sys.stderr.write(stderr + '\n')
             _fatal('Exiting...', exitCode = rc)
+
+    def proveClaim(self, claim, claimId, args = [], teeOutput = False, dieOnFail = False):
+        tmpClaim      = self.directory + '/' + claimId.lower() + '-spec.k'
+        tmpModuleName = claimId.upper() + '-SPEC'
+        with open(tmpClaim, 'w') as tc:
+            claimDefinition = makeDefinition([claim], tmpModuleName, [self.mainFileName], [self.mainModule])
+            tc.write(_genFileTimestamp() + '\n')
+            tc.write(self.prettyPrint(claimDefinition) + '\n\n')
+            tc.flush()
+        return self.prove(tmpClaim, tmpModuleName, args = args, teeOutput = teeOutput, dieOnFail = dieOnFail)
 
 ### Utilities
 
@@ -349,7 +360,7 @@ def kevmSanitizeConfig(initConstrainedTerm):
     constraint          = kevmUndoMacros(constraint)
     return buildAssoc(KConstant('#Top'), '#And', [state, constraint])
 
-def kevmProveClaim(kevm, mainFileName, claim, claimId, kevmArgs = [], teeOutput = False, dieOnFail = False, logFile = None):
+def kevmProveClaim(kevm, claim, claimId, kevmArgs = [], teeOutput = False, dieOnFail = False, logFile = None):
     logAxiomsFile = kevm.directory + '/' + claimId.lower() + '-debug.log' if logFile is None else logFile
     if os.path.exists(logAxiomsFile):
         os.remove(logAxiomsFile)
@@ -362,25 +373,17 @@ def kevmProveClaim(kevm, mainFileName, claim, claimId, kevmArgs = [], teeOutput 
                    , '--haskell-backend-arg' , '--log-entries'
                    , '--haskell-backend-arg' , 'DebugTransition'
                    ]
-    tmpClaim      = kevm.directory + '/' + claimId.lower() + '-spec.k'
-    tmpModuleName = claimId.upper() + '-SPEC'
-    with open(tmpClaim, 'w') as tc:
-        claimDefinition = makeDefinition([claim], tmpModuleName, [mainFileName], [kevm.mainModule])
-        tc.write(_genFileTimestamp() + '\n')
-        tc.write(kevm.prettyPrint(claimDefinition) + '\n\n')
-        tc.flush()
-        finalState = kevm.prove(tmpClaim, tmpModuleName, args = newKevmArgs, teeOutput = teeOutput, dieOnFail = dieOnFail)
-        if finalState == KConstant('#Top'):
-            if len(getAppliedAxiomList(logAxiomsFile)) == 0:
-                _fatal('Proof took zero steps, likely the LHS is invalid: ' + tmpClaim)
-            return KConstant('#Top')
-        return finalState
+    finalState = kevm.proveClaim(claim, claimId, args = newKevmArgs, teeOutput = teeOutput, dieOnFail = dieOnFail)
+    if finalState == KConstant('#Top'):
+        if len(getAppliedAxiomList(logAxiomsFile)) == 0:
+            _fatal('Proof took zero steps, likely the LHS is invalid: ' + tmpClaim)
+        return KConstant('#Top')
+    return finalState
 
-def kevmGetBasicBlocks(kevm, mainFileName, initConstrainedTerm, claimId, debug = False, maxDepth = 1000, isTerminal = None):
+def kevmGetBasicBlocks(kevm, initConstrainedTerm, claimId, debug = False, maxDepth = 1000, isTerminal = None):
     claim       = buildEmptyClaim(initConstrainedTerm, claimId)
     logFileName = kevm.directory + '/' + claimId.lower() + '-debug.log'
     nextState   = kevmProveClaim( kevm
-                                , mainFileName
                                 , claim
                                 , claimId
                                 , kevmArgs = [ '--branching-allowed' , '1' , '--depth' , str(maxDepth) ]
@@ -403,7 +406,7 @@ def kevmGetBasicBlocks(kevm, mainFileName, initConstrainedTerm, claimId, debug =
 
     if isTerminal is not None and isTerminal(nextStates[0]):
         depth -= 1
-        nextState  = kevmProveClaim(kevm, mainFileName, claim, claimId, kevmArgs = ['--depth', str(depth)], teeOutput = debug)
+        nextState  = kevmProveClaim(kevm, claim, claimId, kevmArgs = ['--depth', str(depth)], teeOutput = debug)
         nextStates = [ kevmSanitizeConfig(structurallyFrameKCell(s)) for s in flattenLabel('#Or', nextState) ]
 
     _notif('Found ' + str(len(nextStates)) + ' basic blocks for ' + claimId + ' at depth ' + str(depth) + '.')
@@ -589,7 +592,6 @@ def kevmWriteStateToFile(kevm, contractName, stateId, state):
 
 def kevmSummarize( kevm
                  , initState
-                 , mainFileName
                  , contractName
                  , debug = False
                  , verify = False
@@ -629,7 +631,6 @@ def kevmSummarize( kevm
             writtenStates.append(initStateId)
         claimId                           = contractName.upper() + '-GEN-' + str(initStateId) + '-TO-MAX' + str(maxDepth)
         (depth, nextStatesAndConstraints) = kevmGetBasicBlocks( kevm
-                                                              , mainFileName
                                                               , initState
                                                               , claimId
                                                               , debug = debug
@@ -667,13 +668,13 @@ def kevmSummarize( kevm
             newClaim     = buildRule(basicBlockId, initState, finalState, claim = True)
             newClaims.append(newClaim)
             if verify:
-                kevmProveClaim(kevm, mainFileName, newClaim, basicBlockId, dieOnFail = True)
+                kevmProveClaim(kevm, newClaim, basicBlockId, dieOnFail = True)
                 _notif('Verified claim: ' + basicBlockId)
             newRule = buildRule(basicBlockId, initState, finalState, claim = False, priority = 35)
             newRules.append(newRule)
 
             with open(intermediateClaimsFile, 'w') as intermediate:
-                claimDefinition = makeDefinition(newClaims, intermediateClaimsModule, [mainFileName], [kevm.mainModule])
+                claimDefinition = makeDefinition(newClaims, intermediateClaimsModule, [kevm.mainFileName], [kevm.mainModule])
                 intermediate.write(_genFileTimestamp() + '\n')
                 intermediate.write(kevm.prettyPrint(claimDefinition) + '\n\n')
                 intermediate.write(writeCFG(cfg, kevm, graphvizFile = graphvizFile) + '\n')
@@ -704,11 +705,6 @@ def kevmPykMain(args, kompiled_dir):
 
     if args['command'] == 'summarize':
 
-        kevm             = KSemantics(kompiled_dir)
-        kevm.symbolTable = kevmSymbolTable(kevm.symbolTable)
-        kevm.prover      = [ 'kevm' , 'prove' ]
-        kevm.proverArgs  = [ '--provex' , '--boundary-cells' , 'k,pc' ]
-
         mainFileName       = args['main-module-file']
         directory          = '/'.join(mainFileName.split('/')[0:-1])
         contractName       = args['contract-name']
@@ -716,6 +712,11 @@ def kevmPykMain(args, kompiled_dir):
         maxBlocks          = None if 'max_blocks' not in args else args['max_blocks']
         resumeFromState    = None if 'max_blocks' not in args else args['resume_from_state']
         graphvizFile       = None if not args['graphviz']     else directory + '/' + contractName.lower() + '-basic-blocks'
+
+        kevm             = KSemantics(kompiled_dir, mainFileName)
+        kevm.symbolTable = kevmSymbolTable(kevm.symbolTable)
+        kevm.prover      = [ 'kevm' , 'prove' ]
+        kevm.proverArgs  = [ '--provex' , '--boundary-cells' , 'k,pc' ]
 
         if resumeFromState is None:
             initState = buildInitState(contractName, json.loads(args['init-term'].read())['term'])
@@ -726,7 +727,6 @@ def kevmPykMain(args, kompiled_dir):
 
         (newRules, cfg)   = kevmSummarize( kevm
                                          , initState
-                                         , mainFileName
                                          , contractName
                                          , debug = args['debug']
                                          , verify = args['verify']
