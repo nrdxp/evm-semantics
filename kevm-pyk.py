@@ -628,13 +628,13 @@ def kevmSummarize( kevm
                 kevm.writeStateToFile(finalStateId, finalState)
                 writtenStates.append(finalStateId)
 
+            subsumed = False
             cfg['graph'][initStateId].append(kevmTransitionLabel(finalStateId, initState, finalState, newConstraint, depth))
             if kevmIsTerminal(finalState):
                 cfg['terminal'].append(finalStateId)
             elif len(nextStatesAndConstraints) == 1 and depth != maxDepth:
                 cfg['stuck'].append(finalStateId)
             else:
-                subsumed = False
                 for j in cfg['seenStates']:
                     seen = cfg['states'][j]
                     if subsumes(seen, finalState):
@@ -642,8 +642,6 @@ def kevmSummarize( kevm
                         if finalStateId not in cfg['graph']:
                             cfg['graph'][finalStateId] = []
                         cfg['graph'][finalStateId].append(kevmTransitionLabel(j, finalState, seen, newConstraint, 0))
-                if not subsumed:
-                    cfg['frontier'].append(finalStateId)
 
             (initState, finalState) = kevmMakeExecutable(initState, finalState)
             basicBlockId = contractName.upper() + '-BASIC-BLOCK-' + str(initStateId) + '-TO-' + str(finalStateId)
@@ -655,8 +653,12 @@ def kevmSummarize( kevm
                     _notif('Verified claim: ' + basicBlockId)
                     newRule = buildRule(basicBlockId, initState, finalState, claim = False, priority = 35)
                     cfg['newRules'].append(newRule)
+                    cfg['frontier'].append(finalStateId)
                 else:
+                    cfg['stuck'].append(finalStateId)
                     _warning('Could not verify claim: ' + basicBlockId)
+            elif not subsumed:
+                cfg['frontier'].append(finalStateId)
 
             with open(intermediateClaimsFile, 'w') as intermediate:
                 claimDefinition = makeDefinition(cfg['newClaims'], intermediateClaimsModule, [kevm.mainFileName], [kevm.mainModule])
