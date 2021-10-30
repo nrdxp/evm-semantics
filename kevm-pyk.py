@@ -358,7 +358,8 @@ def kevmSanitizeConfig(initConstrainedTerm):
             return boolToken(False)
         return _kast
 
-    newConstrainedTerm = onCells(_parseableVarNames, initConstrainedTerm)
+    newConstrainedTerm = structurallyFrameKCell(initConstrainedTerm)
+    newConstrainedTerm = onCells(_parseableVarNames, newConstrainedTerm)
     newConstrainedTerm = traverseBottomUp(newConstrainedTerm, _parseableBytesTokens)
     newConstrainedTerm = traverseBottomUp(newConstrainedTerm, _removeCellMapDefinedness)
     newConstrainedTerm = buildAssoc(KConstant('#Top'), '#And', [newConstrainedTerm] + bytesConstraints)
@@ -375,7 +376,7 @@ def kevmGetBasicBlocks(kevm, initConstrainedTerm, claimId, maxDepth = 1000, isTe
     nextState   = kevm.proveClaim( claim , claimId , args = [ '--branching-allowed' , '1' , '--depth' , str(maxDepth) ] , logAxiomsFile = logFileName )
     if nextState == KConstant('#Top'):
         _fatal('Proved claim for generating basic block, use unproveable claims for summaries.')
-    nextStates = [ kevmSanitizeConfig(structurallyFrameKCell(s)) for s in flattenLabel('#Or', nextState) ]
+    nextStates = [ kevmSanitizeConfig(s) for s in flattenLabel('#Or', nextState) ]
 
     branching = False
     depth     = 0
@@ -390,7 +391,7 @@ def kevmGetBasicBlocks(kevm, initConstrainedTerm, claimId, maxDepth = 1000, isTe
     if isTerminal is not None and isTerminal(nextStates[0]):
         depth -= 1
         nextState  = kevm.proveClaim(claim, claimId, args = ['--depth', str(depth)])
-        nextStates = [ kevmSanitizeConfig(structurallyFrameKCell(s)) for s in flattenLabel('#Or', nextState) ]
+        nextStates = [ kevmSanitizeConfig(s) for s in flattenLabel('#Or', nextState) ]
 
     _notif('Found ' + str(len(nextStates)) + ' basic blocks for ' + claimId + ' at depth ' + str(depth) + '.')
 
