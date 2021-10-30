@@ -646,13 +646,13 @@ def kevmSummarize( kevm
             (initState, finalState) = kevmMakeExecutable(initState, finalState)
             basicBlockId = contractName.upper() + '-BASIC-BLOCK-' + str(initStateId) + '-TO-' + str(finalStateId)
             newClaim     = buildRule(basicBlockId, initState, finalState, claim = True)
-            cfg['newClaims'].append(newClaim)
+            cfg['newClaims'].append((initStateId, finalStateId, newClaim))
             if verify:
                 provenState = kevm.proveClaim(newClaim, basicBlockId)
                 if provenState == KConstant('#Top'):
                     _notif('Verified claim: ' + basicBlockId)
                     newRule = buildRule(basicBlockId, initState, finalState, claim = False, priority = 35)
-                    cfg['newRules'].append(newRule)
+                    cfg['newRules'].append((initStateId, finalStateId, newRule))
                     cfg['frontier'].append(finalStateId)
                 else:
                     cfg['stuck'].append(finalStateId)
@@ -660,15 +660,15 @@ def kevmSummarize( kevm
             elif not subsumed:
                 cfg['frontier'].append(finalStateId)
 
+            writeCFGGraphviz(cfg, kevm, summaryDir + '/cfg')
             with open(intermediateClaimsFile, 'w') as intermediate:
-                claimDefinition = makeDefinition(cfg['newClaims'], intermediateClaimsModule, [kevm.mainFileName], [kevm.mainModule])
+                newClaims       = [c[2] for c in cfg['newClaims']]
+                claimDefinition = makeDefinition(newClaims, intermediateClaimsModule, [kevm.mainFileName], [kevm.mainModule])
                 intermediate.write(_genFileTimestamp() + '\n')
                 intermediate.write(kevm.prettyPrint(claimDefinition) + '\n\n')
                 intermediate.write(writeCFG(cfg, kevm) + '\n')
                 intermediate.flush()
                 _notif('Wrote updated claims file: ' + intermediateClaimsFile)
-            writeCFGGraphviz(cfg, kevm, summaryDir + '/cfg')
-
             with open(cfgFile, 'w') as f:
                 f.write(json.dumps(cfg))
                 _notif('Wrote updated cfg file: ' + cfgFile)
@@ -722,7 +722,8 @@ def kevmPykMain(args, kompiled_dir):
                                          , maxBlocks = maxBlocks
                                          , startOffset = resumeFromState if resumeFromState is not None else 0
                                          )
-        summaryDefinition = makeDefinition(cfg['newRules'], summaryRulesModule, ['edsl.md', 'lemmas/infinite-gas.k'], ['EDSL', 'INFINITE-GAS'])
+        newRules          = [c[2] for c in cfg['newRules']]
+        summaryDefinition = makeDefinition(newRules, summaryRulesModule, ['edsl.md', 'lemmas/infinite-gas.k'], ['EDSL', 'INFINITE-GAS'])
 
         args['output'].write(_genFileTimestamp() + '\n')
         args['output'].write(kevm.prettyPrint(summaryDefinition) + '\n\n')
