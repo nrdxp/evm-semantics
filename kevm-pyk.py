@@ -237,7 +237,6 @@ class KProve(KPrint):
             tc.flush()
         return self.prove(tmpClaim, tmpModuleName, args = args, haskellArgs = haskellArgs, logAxiomsFile = logAxiomsFile, dieOnFail = dieOnFail)
 
-
 ### KEVM Stuff
 
 boolToken             = lambda b:       KToken(str(b).lower(), 'Bool')
@@ -360,6 +359,7 @@ def kevmSanitizeConfig(initConstrainedTerm):
         return _kast
 
     newConstrainedTerm = structurallyFrameKCell(initConstrainedTerm)
+    newConstrainedTerm = abstractCell(newConstrainedTerm, 'CALLVALUE_CELL')
     newConstrainedTerm = onCells(_parseableVarNames, newConstrainedTerm)
     newConstrainedTerm = traverseBottomUp(newConstrainedTerm, _parseableBytesTokens)
     newConstrainedTerm = traverseBottomUp(newConstrainedTerm, _removeCellMapDefinedness)
@@ -398,7 +398,6 @@ def kevmGetBasicBlocks(kevm, initConstrainedTerm, claimId, maxDepth = 1000, isTe
 
     (_, initConstraint) = splitConfigAndConstraints(initConstrainedTerm)
     initConstraints     = flattenLabel('#And', initConstraint)
-    nextStates          = [ abstractCell(ns, 'CALLVALUE_CELL') for ns in nextStates ]
     statesAndConstraint = flattenLabel('#And', propagateUpConstraints(buildAssoc(KConstant('#Bottom'), '#Or', nextStates)))
     nextStates          = flattenLabel('#Or', statesAndConstraint[0])
     commonConstraints   = statesAndConstraint[1:]
