@@ -525,22 +525,42 @@ def readCFGFromFile(fileName):
             cfg['states'].pop(k)
         return cfg
 
+def writeCFGEdgesPretty(cfg, summarize, initStateId, indent = ''):
+    cfgLines = []
+    if initStateId not in cfg['graph']:
+        if initStateId in cfg['stuck']:
+            cfgLines.append(indent + '     STUCK')
+        if initStateId in cfg['terminal']:
+            cfgLines.append(indent + '     TERMINAL')
+        if initStateId in cfg['frontier']:
+            cfgLines.append(indent + '     FRONTIER')
+    if initStateId in cfg['graph']:
+        for (i, edge) in enumerate(cfg['graph'][initStateId]):
+            (finalStateId, label, depth) = (edge['successor'], summarize.prettyPrintConstraint(edge['constraint']), edge['depth'])
+            edgeHeader = '|-' + '{0:>3}'.format(initStateId) + ' -> ' + '{0:>3}'.format(finalStateId) + ' [' + '{0:>5}'.format(depth) + ' steps]'
+            cfgLines.append(indent + edgeHeader + ': ' + label)
+            if 'accountUpdate' in edge:
+                cfgLines.extend([ indent + (' ' * len(edgeHeader)) + ': ' + l for l in summarize.prettyPrint(edge['accountUpdate']).split('\n') ])
+            newIndent = indent
+            if i == len(cfg['graph'][initStateId]) - 1:
+                newIndent = newIndent + '  '
+            else:
+                newIndent = newIndent + '| '
+            cfgLines.extend(writeCFGEdgesPretty(cfg, summarize, finalStateId, indent = newIndent))
+    return cfgLines
+
 def writeCFGPretty(cfg, summarize):
     states = list(cfg['states'].keys())
     cfgLines = [ '// CFG:'
-               , '//     states:      ' + ', '.join([str(s) for s in states])
-               , '//     init:        ' + ', '.join([str(s) for s in cfg['init']])
-               , '//     terminal:    ' + ', '.join([str(s) for s in cfg['terminal']])
-               , '//     frontier:    ' + ', '.join([str(s) for s in cfg['frontier']])
-               , '//     stuck:       ' + ', '.join([str(s) for s in cfg['stuck']])
-               , '//     transitions:'
+               , '//     states:   ' + ', '.join([str(s) for s in states])
+               , '//     init:     ' + ', '.join([str(s) for s in cfg['init']])
+               , '//     terminal: ' + ', '.join([str(s) for s in cfg['terminal']])
+               , '//     frontier: ' + ', '.join([str(s) for s in cfg['frontier']])
+               , '//     stuck:    ' + ', '.join([str(s) for s in cfg['stuck']])
+               , '//     graph:'
                ]
-    for initStateId in cfg['graph']:
-        for finState in cfg['graph'][initStateId]:
-            (finalStateId, label, depth) = (finState['successor'], summarize.prettyPrintConstraint(finState['constraint']), finState['depth'])
-            cfgLines.append('//         ' + '{0:>3}'.format(initStateId) + ' -> ' + '{0:>3}'.format(finalStateId) + ' [' + '{0:>5}'.format(depth) + ' steps]: ' + label)
-            if 'accountUpdate' in finState:
-                cfgLines.extend([ '//                                   ' + l for l in summarize.prettyPrint(finState['accountUpdate']).split('\n') ])
+    for initStateId in cfg['init']:
+        cfgLines.extend([ '//             ' + l for l in writeCFGEdgesPretty(cfg, summarize, initStateId) ])
     return '\n'.join(cfgLines)
 
 def writeCFGGraphviz(cfg, summarize):
@@ -555,13 +575,13 @@ def writeCFGGraphviz(cfg, summarize):
         label = ' '.join(labels)
         graph.node(str(s), label = label)
     for s in cfg['graph'].keys():
-        for finState in cfg['graph'][s]:
-            (f, id, d) = (finState['successor'], summarize.prettyPrintConstraint(finState['constraint']), finState['depth'])
+        for edge in cfg['graph'][s]:
+            (f, id, d) = (edge['successor'], summarize.prettyPrintConstraint(edge['constraint']), edge['depth'])
             label = id
             if d != 1:
                 label = label + ': ' + str(d) + ' steps'
-            if 'accountUpdate' in finState:
-                label = label + '\n  ' + '\n  '.join(summarize.prettyPrint(finState['accountUpdate']).split('\n'))
+            if 'accountUpdate' in edge:
+                label = label + '\n  ' + '\n  '.join(summarize.prettyPrint(edge['accountUpdate']).split('\n'))
             graph.edge(str(s), str(f), label = '  ' + label + '        ')
     graph.render(outputFile)
     _notif('Wrote graphviz rendering of CFG: ' + outputFile + '.pdf')
