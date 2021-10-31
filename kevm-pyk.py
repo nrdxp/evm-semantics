@@ -529,24 +529,42 @@ def writeCFGEdgesPretty(cfg, summarize, initStateId, indent = ''):
     cfgLines = []
     if initStateId not in cfg['graph']:
         if initStateId in cfg['stuck']:
-            cfgLines.append(indent + '     STUCK')
+            cfgLines.append(indent + 'STUCK')
         if initStateId in cfg['terminal']:
-            cfgLines.append(indent + '     TERMINAL')
+            cfgLines.append(indent + 'TERMINAL')
         if initStateId in cfg['frontier']:
-            cfgLines.append(indent + '     FRONTIER')
+            cfgLines.append(indent + 'FRONTIER')
     if initStateId in cfg['graph']:
         for (i, edge) in enumerate(cfg['graph'][initStateId]):
             (finalStateId, label, depth) = (edge['successor'], summarize.prettyPrintConstraint(edge['constraint']), edge['depth'])
-            edgeHeader = '|--' + '{0:>3}'.format(initStateId) + ' -> ' + '{0:>3}'.format(finalStateId) + ' [' + '{0:>5}'.format(depth) + ' steps]'
-            cfgLines.append(indent + edgeHeader + ': ' + label)
+            edgeHeader    = '|---- ' + str(finalStateId) + ' [' + '{0:>5}'.format(depth) + ' steps]'
+            edgeSpacer    = '|' + (' ' * (len(edgeHeader) - 1))
+            labelHead     = label.split('\n')[0]
+            labelBody     = label.split('\n')[1:]
+            noNextState   = False
+            if finalStateId <= initStateId:
+                edgeHeader = edgeHeader + ' [SUBSUMED ' + str(finalStateId) + ']'
+                noNextState = True
+            if finalStateId in cfg['stuck']:
+                edgeHeader = edgeHeader + ' [STUCK]'
+                noNextState = True
+            if finalStateId in cfg['terminal']:
+                edgeHeader = edgeHeader + ' [TERMINAL]'
+                noNextState = True
+            if finalStateId in cfg['frontier']:
+                edgeHeader = edgeHeader + ' [FRONTIER]'
+                noNextState = True
             if 'accountUpdate' in edge:
-                cfgLines.extend([ indent + (' ' * len(edgeHeader)) + ': ' + l for l in summarize.prettyPrint(edge['accountUpdate']).split('\n') ])
+                labelBody.extend(summarize.prettyPrint(edge['accountUpdate']).split('\n'))
+            cfgLines.append( indent + edgeHeader + ': ' + labelHead)
+            cfgLines.extend([indent + edgeSpacer + ': ' + lb for lb in labelBody])
             newIndent = indent
             if i == len(cfg['graph'][initStateId]) - 1:
                 newIndent = newIndent + '  '
             else:
                 newIndent = newIndent + '| '
-            cfgLines.extend(writeCFGEdgesPretty(cfg, summarize, finalStateId, indent = newIndent))
+            if not noNextState:
+                cfgLines.extend(writeCFGEdgesPretty(cfg, summarize, finalStateId, indent = newIndent))
     return cfgLines
 
 def writeCFGPretty(cfg, summarize):
@@ -597,7 +615,7 @@ def writeCFGClaimsFile(cfg, summarize, moduleName, rules = False):
         intermediate.flush()
         _notif('Wrote updated ' + ('claims' if not rules else 'rules') + ' file: ' + outputFile)
 
-def computeTransitiveClosureFromState(cfg, stateId):
+def transitiveClosureFromState(cfg, stateId):
     states    = []
     newStates = [stateId]
     while len(newStates) > 0:
@@ -609,7 +627,7 @@ def computeTransitiveClosureFromState(cfg, stateId):
     return states
 
 def invalidateCFGAfterState(cfg, stateId):
-    invalidNodes = computeTransitiveClosureFromState(cfg, stateId)
+    invalidNodes = transitiveClosureFromState(cfg, stateId)
     invalidNodes.pop(0)
     newCfg                = { 'newClaims'   : [ (initId, finalId, claim) for (initId, finalId, claim) in cfg['newClaims'] if initId not in invalidNodes and finalId not in invalidNodes ]
                             , 'newRules'    : [ (initId, finalId, claim) for (initId, finalId, claim) in cfg['newRules']  if initId not in invalidNodes and finalId not in invalidNodes ]
