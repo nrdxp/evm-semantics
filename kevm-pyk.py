@@ -537,7 +537,7 @@ def writeCFGEdgesPretty(cfg, summarize, initStateId, indent = ''):
     if initStateId in cfg['graph']:
         for (i, edge) in enumerate(cfg['graph'][initStateId]):
             (finalStateId, label, depth) = (edge['successor'], summarize.prettyPrintConstraint(edge['constraint']), edge['depth'])
-            edgeHeader = '|-' + '{0:>3}'.format(initStateId) + ' -> ' + '{0:>3}'.format(finalStateId) + ' [' + '{0:>5}'.format(depth) + ' steps]'
+            edgeHeader = '|--' + '{0:>3}'.format(initStateId) + ' -> ' + '{0:>3}'.format(finalStateId) + ' [' + '{0:>5}'.format(depth) + ' steps]'
             cfgLines.append(indent + edgeHeader + ': ' + label)
             if 'accountUpdate' in edge:
                 cfgLines.extend([ indent + (' ' * len(edgeHeader)) + ': ' + l for l in summarize.prettyPrint(edge['accountUpdate']).split('\n') ])
