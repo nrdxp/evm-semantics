@@ -243,8 +243,10 @@ class KSummarize(KProve):
         self.isTerminal      = isTerminal
         self.sanitizeConfig  = sanitizeConfig
 
-    def writeStateToFile(self, stateId, state):
+    def writeStateToFile(self, stateId, state, descriptor = None):
         stateFileName = self.useDirectory + '/state-' + str(stateId)
+        if descriptor is not None:
+            stateFileName = stateFileName + '-' + descriptor
         with open(stateFileName + '.json', 'w') as f:
             f.write(json.dumps(state, indent = 2))
         with open(stateFileName + '.k', 'w') as f:
@@ -506,7 +508,24 @@ def kevmBuildInfeasible(constrainedTerm):
 
 ### Summarization Utilities
 
-def writeCFG(cfg, summarize):
+def writeCFGToFile(cfg, fileName):
+    with open(fileName, 'w') as cFile:
+        cFile.write(json.dumps(cfg))
+        cFile.flush()
+        _notif('Wrote updated cfg file: ' + fileName)
+
+def readCFGFromFile(fileName):
+    with open(fileName, 'r') as cFile:
+        cfg = json.loads(cFile.read())
+        for k in list(cfg['graph'].keys()):
+            cfg['graph'][int(k)] = cfg['graph'][k]
+            cfg['graph'].pop(k)
+        for k in list(cfg['states'].keys()):
+            cfg['states'][int(k)] = cfg['states'][k]
+            cfg['states'].pop(k)
+        return cfg
+
+def writeCFGPretty(cfg, summarize):
     states = list(cfg['states'].keys())
     cfgLines = [ '// CFG:'
                , '//     states:      ' + ', '.join([str(s) for s in states])
@@ -546,6 +565,44 @@ def writeCFGGraphviz(cfg, summarize, graphvizOutput):
     graph.render(graphvizOutput)
     _notif('Wrote graphviz rendering of CFG: ' + graphvizOutput + '.pdf')
 
+def computeTransitiveClosureFromState(cfg, stateId):
+    states    = []
+    newStates = [stateId]
+    while len(newStates) > 0:
+        state = newStates.pop(0)
+        if state not in states:
+            states.append(state)
+            if state in cfg['graph']:
+                newStates.extend([edge['successor'] for edge in cfg['graph'][state]])
+    return states
+
+def invalidateCFGAfterState(cfg, stateId):
+    invalidNodes = computeTransitiveClosureFromState(cfg, stateId)
+    invalidNodes.pop(0)
+    newCfg                = { 'newClaims'   : [ (initId, finalId, claim) for (initId, finalId, claim) in cfg['newClaims'] if initId not in invalidNodes and finalId not in invalidNodes ]
+                            , 'newRules'    : [ (initId, finalId, claim) for (initId, finalId, claim) in cfg['newRules']  if initId not in invalidNodes and finalId not in invalidNodes ]
+                            , 'states'      : { i: cfg['states'][i] for i in cfg['states']     if i not in invalidNodes }
+                            , 'seenStates'  : [ i                   for i in cfg['seenStates'] if i not in invalidNodes ]
+                            , 'init'        : [ i                   for i in cfg['init']       if i not in invalidNodes ]
+                            , 'frontier'    : [ i                   for i in cfg['frontier']   if i not in invalidNodes ]
+                            , 'terminal'    : [ i                   for i in cfg['terminal']   if i not in invalidNodes ]
+                            , 'stuck'       : [ i                   for i in cfg['stuck']      if i not in invalidNodes ]
+                            , 'graph'       : {}
+                            , 'nextStateId' : 0
+                            }
+    newCfg['nextStateId'] = max(cfg['states'].keys()) + 1
+    newFrontier           = []
+    for init in cfg['graph']:
+        if init not in invalidNodes:
+            newCfg['graph'][init] = []
+            for edge in cfg['graph'][init]:
+                if edge['successor'] not in invalidNodes:
+                    newCfg['graph'][init].append(edge)
+                else:
+                    newFrontier.append(init)
+    newCfg['frontier'] = sorted(list(set(newCfg['frontier'] + newFrontier)))
+    return newCfg
+
 ### KEVM Summarizer
 
 def buildInitState(contractName, constrainedTerm):
@@ -580,53 +637,34 @@ def kevmTransitionLabel(successor, initConstrainedTerm, finalConstrainedTerm, ne
     return label
 
 def kevmSummarize( kevm
-                 , initState
                  , contractName
                  , summaryDir
                  , verify = False
                  , maxBlocks = None
                  , maxDepth = 1000
-                 , startOffset = 0
                  ):
 
     intermediateClaimsFile   = kevm.useDirectory + '/basic-blocks-spec.k'
     intermediateClaimsModule = contractName.upper() + '-BASIC-BLOCKS-SPEC'
     cfgFile                  = kevm.useDirectory + '/cfg.json'
-
-    initStates    = [(startOffset + i, ct) for (i, ct) in enumerate(flattenLabel('#Or', initState))]
-    cfg           = { 'seenStates':  []
-                    , 'newClaims':   []
-                    , 'newRules':    []
-                    , 'graph':       {}
-                    , 'init':        [i for (i, _) in initStates]
-                    , 'frontier':    [i for (i, _) in initStates]
-                    , 'states':      { i: s for (i, s) in initStates }
-                    , 'terminal':    []
-                    , 'stuck':       []
-                    , 'nextStateId': startOffset + len(initStates)
-                    }
-    writtenStates = []
+    cfg                      = readCFGFromFile(cfgFile)
 
     while len(cfg['frontier']) > 0 and (maxBlocks is None or len(cfg['newClaims']) < maxBlocks):
-        initStateId                  = cfg['frontier'][0]
+        initStateId                  = cfg['frontier'].pop(0)
         initState                    = abstract(cfg['states'][initStateId])
         (initConfig, initConstraint) = splitConfigAndConstraints(initState)
         initConstraints              = flattenLabel('#And', initConstraint)
         if initStateId not in cfg['graph']:
             cfg['graph'][initStateId] = []
         cfg['seenStates'].append(initStateId)
-        if initStateId not in writtenStates:
-            kevm.writeStateToFile(initStateId, initState)
-            writtenStates.append(initStateId)
+        kevm.writeStateToFile(initStateId, initState, descriptor = 'abstract')
         claimId                           = 'GEN-' + str(initStateId) + '-TO-MAX' + str(maxDepth)
         (depth, nextStatesAndConstraints) = kevm.getBasicBlocks(initState, claimId, maxDepth = maxDepth)
         for (i, (finalState, newConstraint)) in enumerate(nextStatesAndConstraints):
             finalStateId                = cfg['nextStateId']
             cfg['nextStateId']          = cfg['nextStateId'] + 1
             cfg['states'][finalStateId] = finalState
-            if finalStateId not in writtenStates:
-                kevm.writeStateToFile(finalStateId, finalState)
-                writtenStates.append(finalStateId)
+            kevm.writeStateToFile(finalStateId, finalState)
 
             subsumed = False
             cfg['graph'][initStateId].append(kevmTransitionLabel(finalStateId, initState, finalState, newConstraint, depth))
@@ -653,27 +691,25 @@ def kevmSummarize( kevm
                     _notif('Verified claim: ' + basicBlockId)
                     newRule = buildRule(basicBlockId, initState, finalState, claim = False, priority = 35)
                     cfg['newRules'].append((initStateId, finalStateId, newRule))
-                    cfg['frontier'].append(finalStateId)
+                    if finalStateId not in cfg['terminal']:
+                        cfg['frontier'].append(finalStateId)
                 else:
                     cfg['stuck'].append(finalStateId)
                     _warning('Could not verify claim: ' + basicBlockId)
             elif not subsumed:
-                cfg['frontier'].append(finalStateId)
+                if finalStateId not in cfg['terminal']:
+                    cfg['frontier'].append(finalStateId)
 
-            writeCFGGraphviz(cfg, kevm, summaryDir + '/cfg')
-            with open(intermediateClaimsFile, 'w') as intermediate:
-                newClaims       = [c[2] for c in cfg['newClaims']]
-                claimDefinition = makeDefinition(newClaims, intermediateClaimsModule, [kevm.mainFileName], [kevm.mainModule])
-                intermediate.write(_genFileTimestamp() + '\n')
-                intermediate.write(kevm.prettyPrint(claimDefinition) + '\n\n')
-                intermediate.write(writeCFG(cfg, kevm) + '\n')
-                intermediate.flush()
-                _notif('Wrote updated claims file: ' + intermediateClaimsFile)
-            with open(cfgFile, 'w') as f:
-                f.write(json.dumps(cfg))
-                _notif('Wrote updated cfg file: ' + cfgFile)
-
-        cfg['frontier'].pop(0)
+        writeCFGToFile(cfg, cfgFile)
+        writeCFGGraphviz(cfg, kevm, summaryDir + '/cfg')
+        with open(intermediateClaimsFile, 'w') as intermediate:
+            newClaims       = [c[2] for c in cfg['newClaims']]
+            claimDefinition = makeDefinition(newClaims, intermediateClaimsModule, [kevm.mainFileName], [kevm.mainModule])
+            intermediate.write(_genFileTimestamp() + '\n')
+            intermediate.write(kevm.prettyPrint(claimDefinition) + '\n\n')
+            intermediate.write(writeCFGPretty(cfg, kevm) + '\n')
+            intermediate.flush()
+            _notif('Wrote updated claims file: ' + intermediateClaimsFile)
 
     return cfg
 
@@ -698,6 +734,7 @@ def kevmPykMain(args, kompiled_dir):
         directory          = '/'.join(mainFileName.split('/')[0:-1])
         contractName       = args['contract-name']
         summaryDir         = args['summary-dir'] + '/' + contractName.lower()
+        cfgFile            = summaryDir + '/cfg.json'
         summaryRulesModule = contractName.upper() + '-BASIC-BLOCKS'
         maxBlocks          = None if 'max_blocks' not in args else args['max_blocks']
         resumeFromState    = None if 'max_blocks' not in args else args['resume_from_state']
@@ -708,26 +745,35 @@ def kevmPykMain(args, kompiled_dir):
         kevm.proverArgs  = [ '--provex' , '--boundary-cells' , 'k,pc' ]
 
         if resumeFromState is None:
-            initState = buildInitState(contractName, json.loads(args['init-term'].read())['term'])
+            initStates = [ kevmSanitizeConfig(s) for s in flattenLabel('#Or', buildInitState(contractName, json.loads(args['init-term'].read())['term'])) ]
+            initCfg    = { 'seenStates'  : []
+                         , 'newClaims'   : []
+                         , 'newRules'    : []
+                         , 'graph'       : {}
+                         , 'init'        : [ i    for (i, _) in enumerate(initStates) ]
+                         , 'frontier'    : [ i    for (i, _) in enumerate(initStates) ]
+                         , 'states'      : { i: s for (i, s) in enumerate(initStates) }
+                         , 'terminal'    : []
+                         , 'stuck'       : []
+                         , 'nextStateId' : len(initStates)
+                         }
         else:
-            with open(summaryDir + '/state-' + str(args['resume_from_state']) + '.json', 'r') as resumeState:
-                initState = json.loads(resumeState.read())
-        initState = kevmSanitizeConfig(initState)
+            initCfg = readCFGFromFile(cfgFile)
+            if 0 <= resumeFromState:
+                initCfg = invalidateCFGAfterState(initCfg, resumeFromState)
+                if resumeFromState not in initCfg['frontier']:
+                    _fatal('Pruning CFG failed! Is state ' + str(resumeFromState) + ' in a cycle?')
+        writeCFGToFile(initCfg, cfgFile)
+        writeCFGGraphviz(initCfg, kevm, summaryDir + '/cfg')
 
-        cfg               = kevmSummarize( kevm
-                                         , initState
-                                         , contractName
-                                         , summaryDir
-                                         , verify = args['verify']
-                                         , maxBlocks = maxBlocks
-                                         , startOffset = resumeFromState if resumeFromState is not None else 0
-                                         )
+        kevmSummarize(kevm, contractName, summaryDir, verify = args['verify'], maxBlocks = maxBlocks)
+
+        cfg               = readCFGFromFile(cfgFile)
         newRules          = [c[2] for c in cfg['newRules']]
         summaryDefinition = makeDefinition(newRules, summaryRulesModule, ['edsl.md', 'lemmas/infinite-gas.k'], ['EDSL', 'INFINITE-GAS'])
-
         args['output'].write(_genFileTimestamp() + '\n')
         args['output'].write(kevm.prettyPrint(summaryDefinition) + '\n\n')
-        args['output'].write(writeCFG(cfg, kevm) + '\n')
+        args['output'].write(writeCFGPretty(cfg, kevm) + '\n')
         args['output'].flush()
 
 if __name__ == '__main__':
