@@ -540,7 +540,7 @@ def writeCFGPretty(cfg, summarize):
             (finalStateId, label, depth) = (finState['successor'], summarize.prettyPrintConstraint(finState['constraint']), finState['depth'])
             cfgLines.append('//         ' + '{0:>3}'.format(initStateId) + ' -> ' + '{0:>3}'.format(finalStateId) + ' [' + '{0:>5}'.format(depth) + ' steps]: ' + label)
             if 'accountUpdate' in finState:
-                cfgLines.append('\n//                                   ' + '\n//                                   '.join(summarize.prettyPrint(finState['accountUpdate']).split('\n')))
+                cfgLines.extend([ '//                                   ' + l for l in summarize.prettyPrint(finState['accountUpdate']).split('\n') ])
     return '\n'.join(cfgLines)
 
 def writeCFGGraphviz(cfg, summarize):
