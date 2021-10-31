@@ -286,6 +286,8 @@ run_summarize() {
     if [[ -z "${summary_dir}" ]]; then
         summary_dir="$(mktemp --directory .kevm-summarize-XXXXXX)"
         ${debug} || trap "rm -rf ${summary_dir}" INT TERM EXIT
+    elif [[ -d "${summary_dir}" ]] && ${clear_summarizer_cache}; then
+        rm -rf "${summary_dir}"
     fi
     mkdir -p "${summary_dir}"
     mkdir -p "${backend_dir}"
@@ -457,7 +459,8 @@ if [[ "$run_command" == 'help' ]] || [[ "$run_command" == '--help' ]] ; then
                                       [--summary-dir <directory_name>]
                                       [--include-summary-files <comman_separated_k_files>]
                                       [--include-summary-modules <comman_separated_modules>]
-                                      [--no-init]
+                                      [--no-summarizer-init]
+                                      [--clear-summarizer-cache]
                  <K arg> is an argument you want to pass to K.
                  <interpreter arg> is an argument you want to pass to the derived interpreter.
                  <kore-prof arg> is an argument you want to pass to kore-prof.
@@ -498,6 +501,7 @@ max_counterexamples=
 branching_allowed=
 summary_dir=
 summary_init=true
+clear_summarizer_cache=false
 haskell_backend_command=(kore-exec)
 include_summary_files=
 include_summary_modules=
@@ -532,7 +536,8 @@ while [[ $# -gt 0 ]]; do
         --summary-dir)             summary_dir="$2"                ; shift 2 ;;
         --include-summary-files)   include_summary_files="$2"      ; shift 2 ;;
         --include-summary-modules) include_summary_modules="$2"    ; shift 2 ;;
-        --no-init)                 summary_init=false              ; shift   ;;
+        --no-summarizer-init)      summary_init=false              ; shift   ;;
+        --clear-summarizer-cache)  clear_summarizer_cache=true     ; shift   ;;
         -p|--port)                 kevm_port="$2"                  ; shift 2 ;;
         -h|--host|--hostname)      kevm_host="$2"                  ; shift 2 ;;
         *)                         args+=("$1")                    ; shift   ;;
