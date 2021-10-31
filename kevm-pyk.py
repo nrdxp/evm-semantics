@@ -543,9 +543,10 @@ def writeCFGPretty(cfg, summarize):
                 cfgLines.append('\n//                                   ' + '\n//                                   '.join(semantics.prettyPrint(finState['accountUpdate']).split('\n')))
     return '\n'.join(cfgLines)
 
-def writeCFGGraphviz(cfg, summarize, graphvizOutput):
-    states = list(cfg['states'].keys())
-    graph = Digraph()
+def writeCFGGraphviz(cfg, summarize):
+    outputFile = summarize.useDirectory + '/cfg'
+    states     = list(cfg['states'].keys())
+    graph      = Digraph()
     for s in states:
         labels = [str(s) + ':']
         for l in ['init', 'terminal', 'frontier', 'stuck']:
@@ -562,8 +563,19 @@ def writeCFGGraphviz(cfg, summarize, graphvizOutput):
             if 'accountUpdate' in finState:
                 label = label + '\n  ' + '\n  '.join(semantics.prettyPrint(finState['accountUpdate']).split('\n'))
             graph.edge(str(s), str(f), label = '  ' + label + '        ')
-    graph.render(graphvizOutput)
-    _notif('Wrote graphviz rendering of CFG: ' + graphvizOutput + '.pdf')
+    graph.render(outputFile)
+    _notif('Wrote graphviz rendering of CFG: ' + outputFile + '.pdf')
+
+def writeCFGClaimsFile(cfg, summarize, moduleName, rules = False):
+    outputFile = summarize.useDirectory + ('/basic-blocks-spec.k' if not rules else '/basic-blocks.k')
+    with open(outputFile, 'w') as intermediate:
+        newClaims       = [c[2] for c in cfg['newClaims' if not rules else 'newRules']]
+        claimDefinition = makeDefinition(newClaims, moduleName, ['edsl.md'], ['EDSL'])
+        intermediate.write(_genFileTimestamp() + '\n')
+        intermediate.write(summarize.prettyPrint(claimDefinition) + '\n\n')
+        intermediate.write(writeCFGPretty(cfg, summarize) + '\n')
+        intermediate.flush()
+        _notif('Wrote updated ' + ('claims' if not rules else 'rules') + ' file: ' + outputFile)
 
 def computeTransitiveClosureFromState(cfg, stateId):
     states    = []
@@ -644,10 +656,9 @@ def kevmSummarize( kevm
                  , maxDepth = 1000
                  ):
 
-    intermediateClaimsFile   = kevm.useDirectory + '/basic-blocks-spec.k'
-    intermediateClaimsModule = contractName.upper() + '-BASIC-BLOCKS-SPEC'
-    cfgFile                  = kevm.useDirectory + '/cfg.json'
-    cfg                      = readCFGFromFile(cfgFile)
+    claimsModule = contractName.upper() + '-BASIC-BLOCKS-SPEC'
+    cfgFile      = kevm.useDirectory + '/cfg.json'
+    cfg          = readCFGFromFile(cfgFile)
 
     while len(cfg['frontier']) > 0 and (maxBlocks is None or len(cfg['newClaims']) < maxBlocks):
         initStateId                  = cfg['frontier'].pop(0)
@@ -701,15 +712,8 @@ def kevmSummarize( kevm
                     cfg['frontier'].append(finalStateId)
 
         writeCFGToFile(cfg, cfgFile)
-        writeCFGGraphviz(cfg, kevm, summaryDir + '/cfg')
-        with open(intermediateClaimsFile, 'w') as intermediate:
-            newClaims       = [c[2] for c in cfg['newClaims']]
-            claimDefinition = makeDefinition(newClaims, intermediateClaimsModule, [kevm.mainFileName], [kevm.mainModule])
-            intermediate.write(_genFileTimestamp() + '\n')
-            intermediate.write(kevm.prettyPrint(claimDefinition) + '\n\n')
-            intermediate.write(writeCFGPretty(cfg, kevm) + '\n')
-            intermediate.flush()
-            _notif('Wrote updated claims file: ' + intermediateClaimsFile)
+        writeCFGGraphviz(cfg, kevm)
+        writeCFGClaimsFile(cfg, kevm, claimsModule)
 
     return cfg
 
@@ -764,17 +768,16 @@ def kevmPykMain(args, kompiled_dir):
                 if resumeFromState not in initCfg['frontier']:
                     _fatal('Pruning CFG failed! Is state ' + str(resumeFromState) + ' in a cycle?')
         writeCFGToFile(initCfg, cfgFile)
-        writeCFGGraphviz(initCfg, kevm, summaryDir + '/cfg')
+        writeCFGGraphviz(initCfg, kevm)
+        writeCFGClaimsFile(initCfg, kevm, summaryRulesModule + '-SPEC')
 
         kevmSummarize(kevm, contractName, summaryDir, verify = args['verify'], maxBlocks = maxBlocks)
 
-        cfg               = readCFGFromFile(cfgFile)
-        newRules          = [c[2] for c in cfg['newRules']]
-        summaryDefinition = makeDefinition(newRules, summaryRulesModule, ['edsl.md', 'lemmas/infinite-gas.k'], ['EDSL', 'INFINITE-GAS'])
-        args['output'].write(_genFileTimestamp() + '\n')
-        args['output'].write(kevm.prettyPrint(summaryDefinition) + '\n\n')
-        args['output'].write(writeCFGPretty(cfg, kevm) + '\n')
-        args['output'].flush()
+        cfg = readCFGFromFile(cfgFile)
+        writeCFGClaimsFile(cfg, kevm, summaryRulesModule, rules = True)
+        with open(kevm.useDirectory + '/basic-blocks.k', 'r') as cFile:
+            args['output'].write(cFile.read())
+            args['output'].flush()
 
 if __name__ == '__main__':
     main(pykArgs, extraMain = kevmPykMain)
