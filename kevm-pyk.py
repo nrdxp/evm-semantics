@@ -540,7 +540,7 @@ def writeCFGPretty(cfg, summarize):
             (finalStateId, label, depth) = (finState['successor'], summarize.prettyPrintConstraint(finState['constraint']), finState['depth'])
             cfgLines.append('//         ' + '{0:>3}'.format(initStateId) + ' -> ' + '{0:>3}'.format(finalStateId) + ' [' + '{0:>5}'.format(depth) + ' steps]: ' + label)
             if 'accountUpdate' in finState:
-                cfgLines.append('\n//                                   ' + '\n//                                   '.join(semantics.prettyPrint(finState['accountUpdate']).split('\n')))
+                cfgLines.append('\n//                                   ' + '\n//                                   '.join(summarize.prettyPrint(finState['accountUpdate']).split('\n')))
     return '\n'.join(cfgLines)
 
 def writeCFGGraphviz(cfg, summarize):
@@ -561,7 +561,7 @@ def writeCFGGraphviz(cfg, summarize):
             if d != 1:
                 label = label + ': ' + str(d) + ' steps'
             if 'accountUpdate' in finState:
-                label = label + '\n  ' + '\n  '.join(semantics.prettyPrint(finState['accountUpdate']).split('\n'))
+                label = label + '\n  ' + '\n  '.join(summarize.prettyPrint(finState['accountUpdate']).split('\n'))
             graph.edge(str(s), str(f), label = '  ' + label + '        ')
     graph.render(outputFile)
     _notif('Wrote graphviz rendering of CFG: ' + outputFile + '.pdf')
