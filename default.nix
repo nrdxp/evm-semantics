@@ -12,7 +12,6 @@ in import src {
 let
 
   inherit (pkgs) lib;
-  ttuegel = import inputs."nix-lib" { inherit pkgs; };
 
   inherit (kframework) k haskell-backend clang;
   # The following llvm-backend directory is needed at build time by kevm, but it's missing
@@ -40,7 +39,6 @@ in let
   };
   kevm = callPackage ./nix/kevm.nix {
     inherit src;
-    inherit (ttuegel) cleanSourceWith;
     inherit libff;
     inherit k haskell-backend llvm-backend clang;
     inherit (pkgs.python2Packages) python;

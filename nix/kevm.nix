@@ -1,36 +1,16 @@
-{ stdenv, lib, src, cleanSourceWith
+{ stdenv, lib, src
 , protobuf
 , cryptopp, libff, mpfr, secp256k1
 , jemalloc, libffi, ncurses
 , k, haskell-backend, llvm-backend, clang, python, cmake, which
 }:
 
-let src' = src; in
-
 let
   version = "0";
 
-  src = cleanSourceWith {
-    name = "evm-semantics";
-    src = src';
-    ignore = [
-      "*.nix"
-      "/.build"
-      "/deps/k"
-      "/deps/plugin/deps"
-      "/media"
-      "/nix"
-      "/package"
-      "/web"
-    ];
-  };
   mkEVM = target: f: stdenv.mkDerivation (f {
     pname = "evm-${target}";
-    inherit version;
-    src = cleanSourceWith {
-      name = "evm-semantics";
-      inherit src;
-    };
+    inherit version src;
     nativeBuildInputs = [ protobuf k haskell-backend llvm-backend clang cmake which ];
     buildInputs = [ cryptopp libff mpfr secp256k1 ];
 
