@@ -2,7 +2,7 @@
 , release ? null, kframework ? let
   tag = pkgs.lib.fileContents ./deps/k_release;
   url = "https://github.com/kframework/k/releases/download/${tag}/release.nix";
-  args = import (builtins.fetchurl { inherit url; });
+  args = import (builtins.fetchurl { inherit url; sha256 = "1nbnw6ww386xnmgy8mbbxyyjzpzkg6dpp2d989p94094gahrcqgh"; });
   src = pkgs.fetchgit args;
 in import src {
   release = if release == null then pkgs.stdenv.isLinux else false;
