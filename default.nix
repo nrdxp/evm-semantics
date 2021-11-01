@@ -33,17 +33,10 @@ let
 in let inherit (pkgs) callPackage;
 
 in let
-  src = ttuegel.cleanGitSubtree {
-    name = "evm-semantics";
-    src = ./.;
-  };
+  src = inputs.self or ./.;
   libff = callPackage ./nix/libff.nix {
     stdenv = llvmPackages.stdenv;
-    src = ttuegel.cleanGitSubtree {
-      name = "libff";
-      src = ./.;
-      subDir = "deps/plugin/deps/libff";
-    };
+    src = "${src}/deps/plugin/deps/libff";
   };
   kevm = callPackage ./nix/kevm.nix {
     inherit src;
