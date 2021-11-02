@@ -32,7 +32,7 @@ let
 in let inherit (pkgs) callPackage;
 
 in let
-  src = inputs.self or ./.;
+  src = inputs.kevm or ./.;
   libff = callPackage ./nix/libff.nix {
     stdenv = llvmPackages.stdenv;
     src = "${src}/deps/plugin/deps/libff";
